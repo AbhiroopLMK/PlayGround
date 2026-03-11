@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>BrighterEventing.Publisher</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.3" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="10.0.3" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.EnvironmentVariables" Version="10.0.3" />
+    <PackageReference Include="Paramore.Brighter" Version="10.3.0" />
+    <PackageReference Include="Paramore.Brighter.Extensions.DependencyInjection" Version="10.3.0" />
+    <PackageReference Include="Paramore.Brighter.PostgreSql" Version="10.3.0" />
+    <PackageReference Include="Paramore.Brighter.Outbox.PostgreSql" Version="10.3.0" />
+    <PackageReference Include="Paramore.Brighter.MessagingGateway.AzureServiceBus" Version="10.3.0" />
+    <PackageReference Include="Paramore.Brighter.MessagingGateway.RMQ.Async" Version="10.3.0" />
+    <PackageReference Include="Paramore.Brighter.PostgreSql.EntityFrameworkCore" Version="10.3.0" />
+    <PackageReference Include="Npgsql" Version="8.0.7" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="8.0.22" />
+    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="8.0.11" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\BrighterEventing.Contracts\BrighterEventing.Contracts.csproj" />
+  </ItemGroup>
+
+</Project>
