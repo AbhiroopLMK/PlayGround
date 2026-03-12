@@ -5,6 +5,8 @@ using Microsoft.Extensions.Hosting;
 using Paramore.Brighter;
 using Paramore.Brighter.Extensions.DependencyInjection;
 using Paramore.Brighter.MessagingGateway.RMQ.Async;
+using Paramore.Brighter.MessagingGateway.AzureServiceBus;
+using Paramore.Brighter.MessagingGateway.AzureServiceBus.ClientProvider;
 using Paramore.Brighter.ServiceActivator.Extensions.DependencyInjection;
 using Paramore.Brighter.ServiceActivator.Extensions.Hosting;
 
@@ -48,10 +50,25 @@ internal static class Program
                     ?? throw new InvalidOperationException("AzureServiceBus:ConnectionString is required when Transport=AzureServiceBus.");
                 var topicName = config["AzureServiceBus:TopicName"] ?? "brighter-events";
                 var subscriptionName = config["AzureServiceBus:SubscriptionName"] ?? "brighter-eventing-sub";
-                // Azure Service Bus: use the type from your Brighter.MessagingGateway.AzureServiceBus package (e.g. ServiceBusConnectionStringClientProvider in 10.3+)
-                throw new NotSupportedException(
-                    "Azure Service Bus transport: configure the client provider from Paramore.Brighter.MessagingGateway.AzureServiceBus. " +
-                    "For this sample use Transport=RabbitMQ in appsettings, or upgrade to Brighter 10.3+ and add the correct client provider type.");
+
+                var clientProvider = new ServiceBusConnectionStringClientProvider(asbConnectionString);
+                // ASB: RoutingKey = topic name (must match Publisher's Topic), ChannelName = ASB subscription name.
+                consumers.Subscriptions =
+                [
+                    new AzureServiceBusSubscription<Contracts.Events.OrderCreatedEvent>(
+                        new SubscriptionName(subscriptionName),
+                        new ChannelName(subscriptionName),
+                        new RoutingKey("order.created"),
+                        makeChannels: OnMissingChannel.Create,
+                        messagePumpType: MessagePumpType.Proactor),
+                    new AzureServiceBusSubscription<Contracts.Events.GreetingMadeEvent>(
+                        new SubscriptionName(subscriptionName),
+                        new ChannelName(subscriptionName),
+                        new RoutingKey("greeting.made"),
+                        makeChannels: OnMissingChannel.Create,
+                        messagePumpType: MessagePumpType.Proactor)
+                ];
+                consumers.DefaultChannelFactory = new AzureServiceBusChannelFactory(new AzureServiceBusConsumerFactory(clientProvider));
             }
             else
             {

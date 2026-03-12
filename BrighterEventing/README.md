@@ -107,7 +107,7 @@ Copy from `secrets.json.template` in each project and fill in your values. For p
 
 ## Configuration
 
-- **Transport**: `"Transport": "RabbitMQ"` (default) or `"AzureServiceBus"`. For Azure you may need to add the correct client provider from your Brighter version.
+- **Transport**: `"Transport": "RabbitMQ"` (default) or `"AzureServiceBus"`. For Azure Service Bus, set `Transport` to `AzureServiceBus` and add `AzureServiceBus:ConnectionString` in secrets.json (and optionally `AzureServiceBus:TopicName`; the Publisher uses topics `order.created` and `greeting.made`).
 - **Publisher**: `Publisher:SendIntervalSeconds` (default 5).
 - **RabbitMQ**: `RabbitMQ:AmqpUri` (set via secrets.json or env), `RabbitMQ:Exchange`, `RabbitMQ:SubscriptionName` (Subscriber).
 - **Connection strings**: `ConnectionStrings:BrighterOutbox` (Publisher), `ConnectionStrings:BrighterInbox` (Subscriber) — set via `secrets.json` or env; not in appsettings.
@@ -119,7 +119,7 @@ Change only the `Transport` key and the corresponding broker settings in config.
 ## Limitations
 
 - Outbox sweeper not wired in this sample (Brighter 10.0.x); enable where your version supports it.
-- Azure Service Bus path is stubbed; use your Brighter Azure package for production.
+- Azure Service Bus is supported: set `Transport` to `AzureServiceBus` and provide `AzureServiceBus:ConnectionString` in secrets.json. The Publisher creates topics `order.created` and `greeting.made`; the Subscriber creates subscriptions under those topics when using `MakeChannels: Create`.
 - Inbox retention: implement a job to clear old inbox rows if needed.
 
 ## References

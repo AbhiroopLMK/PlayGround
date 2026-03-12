@@ -11,6 +11,8 @@ using Paramore.Brighter.MessagingGateway.RMQ.Async;
 using Paramore.Brighter.Outbox.PostgreSql;
 using Paramore.Brighter.PostgreSql.EntityFrameworkCore;
 using Npgsql;
+using Paramore.Brighter.MessagingGateway.AzureServiceBus;
+using Paramore.Brighter.MessagingGateway.AzureServiceBus.ClientProvider;
 
 namespace BrighterEventing.Publisher;
 
@@ -54,12 +56,12 @@ internal static class Program
 
         if (transport == TransportType.AzureServiceBus)
         {
-            // Azure Service Bus: requires ServiceBusConnectionStringClientProvider (or similar) from Brighter.MessagingGateway.AzureServiceBus.
-            // For a quick run use Transport=RabbitMQ; for Azure see Brighter docs and upgrade to 10.3+ if needed.
-            throw new NotSupportedException(
-                "Azure Service Bus: set Transport=RabbitMQ in appsettings for this sample, or add the correct Azure client provider from your Brighter.MessagingGateway.AzureServiceBus package.");
+            ConfigureAzureServiceBus(producers, config);
         }
-        ConfigureRabbitMQ(producers, config);
+        else
+        {
+            ConfigureRabbitMQ(producers, config);
+        }
         })
         .AutoFromAssemblies([typeof(Program).Assembly], [typeof(Contracts.Events.OrderCreatedEvent)]);
 
@@ -108,8 +110,22 @@ internal static class Program
         var connectionString = config["AzureServiceBus:ConnectionString"]
             ?? throw new InvalidOperationException("AzureServiceBus:ConnectionString is required when Transport=AzureServiceBus.");
         var topicName = config["AzureServiceBus:TopicName"] ?? "brighter-events";
-        // Use the client provider type from Paramore.Brighter.MessagingGateway.AzureServiceBus (e.g. ServiceBusConnectionStringClientProvider in 10.3+)
-        throw new NotSupportedException("Configure Azure Service Bus with your Brighter package version. Use Transport=RabbitMQ for this sample.");
+
+        var connection = new ServiceBusConnectionStringClientProvider(connectionString);
+
+        producers.ProducerRegistry = new AzureServiceBusProducerRegistryFactory(connection,
+        [
+            new AzureServiceBusPublication<Contracts.Events.OrderCreatedEvent>
+            {
+                MakeChannels = OnMissingChannel.Create,
+                Topic = new RoutingKey("order.created")
+            },
+            new AzureServiceBusPublication<Contracts.Events.GreetingMadeEvent>
+            {
+                MakeChannels = OnMissingChannel.Create,
+                Topic = new RoutingKey("greeting.made")
+            }
+        ]).Create();
     }
 
     private static async Task EnsureOutboxTableAsync(IServiceProvider services, string connectionString)
