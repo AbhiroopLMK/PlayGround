@@ -19,6 +19,7 @@
     <PackageReference Include="Paramore.Brighter.MessagingGateway.AzureServiceBus" Version="10.3.0" />
     <PackageReference Include="Paramore.Brighter.MessagingGateway.RMQ.Async" Version="10.3.0" />
     <PackageReference Include="Paramore.Brighter.PostgreSql.EntityFrameworkCore" Version="10.3.0" />
+    <PackageReference Include="Polly" Version="8.6.5" />
     <PackageReference Include="Npgsql" Version="8.0.7" />
     <PackageReference Include="Microsoft.EntityFrameworkCore" Version="8.0.22" />
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="8.0.11" />

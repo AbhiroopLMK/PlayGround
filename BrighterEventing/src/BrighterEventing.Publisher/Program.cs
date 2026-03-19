@@ -13,6 +13,9 @@ using Paramore.Brighter.PostgreSql.EntityFrameworkCore;
 using Npgsql;
 using Paramore.Brighter.MessagingGateway.AzureServiceBus;
 using Paramore.Brighter.MessagingGateway.AzureServiceBus.ClientProvider;
+using Polly;
+using Polly.Registry;
+using Polly.Retry;
 
 namespace BrighterEventing.Publisher;
 
@@ -43,10 +46,19 @@ internal static class Program
 
         builder.Services.AddSingleton<Paramore.Brighter.IAmARelationalDatabaseConfiguration>(outboxConfig);
 
+        var resiliencePipelineRegistry = new ResiliencePipelineRegistry<string>();
+        resiliencePipelineRegistry.TryAddBuilder(CommandProcessor.OutboxProducer, (builder, _) =>
+            builder.AddRetry(new RetryStrategyOptions
+            {
+                MaxRetryAttempts = 1,
+                Delay = TimeSpan.Zero,
+            }));
+
         builder.Services.AddBrighter(options =>
         {
             options.HandlerLifetime = ServiceLifetime.Scoped;
             options.MapperLifetime = ServiceLifetime.Singleton;
+            options.ResiliencePipelineRegistry = resiliencePipelineRegistry;
         })
         .AddProducers(producers =>
         {

@@ -112,6 +112,35 @@ Copy from `secrets.json.template` in each project and fill in your values. For p
 - **RabbitMQ**: `RabbitMQ:AmqpUri` (set via secrets.json or env), `RabbitMQ:Exchange`, `RabbitMQ:SubscriptionName` (Subscriber).
 - **Connection strings**: `ConnectionStrings:BrighterOutbox` (Publisher), `ConnectionStrings:BrighterInbox` (Subscriber) — set via `secrets.json` or env; not in appsettings.
 
+### Messaging (retry, dead-letter, backoff)
+
+Shared settings for both RabbitMQ and Azure Service Bus live under **`Messaging`** in appsettings (Subscriber).
+
+| Key | Description | Default |
+|-----|-------------|---------|
+| `Messaging:Consumer:MaxRetryCount` | Max requeues before dead-letter | 3 |
+| `Messaging:Consumer:RequeueDelayMs` | Delay before requeue (backoff) | 5000 |
+| `Messaging:Consumer:ReceiveTimeoutMs` | Message receive/processing timeout (ms) | 400 |
+| `Messaging:AzureServiceBus:MaxDeliveryCount` | ASB max deliveries before DLQ | 5 |
+| `Messaging:AzureServiceBus:LockDurationSeconds` | ASB lock duration (seconds) | 60 |
+| `Messaging:AzureServiceBus:DeadLetteringOnMessageExpiration` | Dead-letter on TTL expiry | true |
+| `Messaging:AzureServiceBus:DefaultMessageTimeToLiveDays` | Default message TTL (days) | 3 |
+
+- **Subscriber**: Uses these when creating subscriptions (RMQ and ASB). `OrderCreatedHandler` also uses a Polly retry pipeline (`ConsumerRetryPipeline`) with exponential backoff driven by `Messaging:Consumer` (in-handler retries).
+- **Publisher**: `Messaging:DeferredDelaySeconds` is reserved for future deferred/scheduled send.
+
+### Testing retry and dead-letter
+
+- **Simulated failures**: In the Subscriber, set `Testing:SimulateFailureCount` to a positive number (e.g. `2`). The first N invocations of `GreetingMadeHandler` will throw; you can observe broker retries, requeue delay, and eventual success or dead-letter after max retries.
+- **How to test**: Run Subscriber with `Testing:SimulateFailureCount: 2` and `Messaging:Consumer:MaxRetryCount: 3`, start the Publisher, and watch logs: you should see "Simulated failure 1/2", then retries, then "Simulated failure 2/2", then "Greeting received" on the next delivery. With enough failures (e.g. set `SimulateFailureCount` higher than delivery count), messages will move to the broker’s dead-letter queue (RabbitMQ or ASB DLQ).
+- **Inbox/outbox**: Inbox and outbox behaviour is unchanged; simulated failures exercise the retry/DLQ path before a message is completed and recorded in the inbox.
+
+### Logging and shutdown
+
+- **Pipeline logs**: Brighter logs "Building send async pipeline" and "Found X async pipelines" at Info for each message. The Subscriber sets `Logging:LogLevel:Paramore.Brighter.CommandProcessor` to **Warning** to avoid this per-message noise. The Polly resilience pipeline is cached by the registry; Brighter’s handler resolution is per dispatch by design.
+- **Azure Service Bus**: "No Cloud Events data schema/subject/trace…" warnings are suppressed by setting `Paramore.Brighter.MessagingGateway.AzureServiceBus` to **Error** (so only errors are logged).
+- **Graceful shutdown**: `HostOptions:ShutdownTimeout` is set to 30 seconds so the Service Activator can stop its message pumps before the host disposes the synchronization context, reducing `ObjectDisposedException` on Ctrl+C.
+
 ## Swapping transport
 
 Change only the `Transport` key and the corresponding broker settings in config. Handlers and contracts stay unchanged.
