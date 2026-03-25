@@ -13,9 +13,15 @@ public class BrighterOutboxDbContext : DbContext
     {
     }
 
-    // No DbSets required - outbox table is managed by Brighter's DDL
+    public DbSet<DemoOrderRecord> DemoOrders { get; set; } = null!;
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
+        modelBuilder.Entity<DemoOrderRecord>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.OrderKey).HasMaxLength(128);
+        });
     }
 }

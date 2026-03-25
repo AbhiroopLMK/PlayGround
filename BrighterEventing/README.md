@@ -6,7 +6,7 @@ Sample publisher and subscriber applications demonstrating **Paramore.Brighter**
 
 | HLD driver / requirement | Where it's shown |
 |--------------------------|------------------|
-| **1. Separation of concerns** | Commands and events in `BrighterEventing.Contracts`; handlers separate from transport. |
+| **1. Separation of concerns** | Wire shapes (`LgsEventWire`, `IInternalEventPayload`) and Brighter events in `BrighterEventing.Messaging`; publisher handlers separate from transport. |
 | **2. Encapsulation of cross-cutting concerns** | Handler pipeline (logging, retry) and optional inbox/outbox middleware. |
 | **3. Reliability via Outbox and Inbox** | **Publisher**: Postgres outbox; **Subscriber**: Postgres inbox for de-duplication. |
 | **4. Durable execution** | Outbox: messages persisted in Postgres before being sent. |
@@ -19,16 +19,16 @@ Sample publisher and subscriber applications demonstrating **Paramore.Brighter**
 ```
 [Publisher]                          [RabbitMQ]                    [Subscriber]
      |                                     |                              |
-     | 1. Timer: SendAsync(PublishOrderCreatedCommand)                   |
-     | 2. Handler: BeginTransaction                                       |
-     | 3. DepositPostAsync(OrderCreatedEvent) → INSERT into Outbox         |
+     | 1. Timer: SendAsync(PublishWrappedEnvelopeCommand)                 |
+     | 2. Handler: BeginTransaction (+ optional DemoOrders row)           |
+     | 3. DepositPostAsync(LgsEnvelopeBrighterEvent or RabbitInternal…) → Outbox |
      | 4. Commit transaction                                               |
      | 5. ClearOutboxAsync(ids) → read Outbox, publish to broker -------->|  (exchange/queues)
      |    then set Outbox.Dispatched = now                                 |
      |                                     | 6. Message on queue            |
      |                                     |------------------------------>| 7. ServiceActivator receives
      |                                     |                              | 8. Inbox middleware: check duplicate
-     |                                     |                              | 9. Handler runs (OrderCreatedHandler)
+     |                                     |                              | 9. Handler runs (LgsEnvelopeHandler / RabbitInternalEnvelopeHandler)
      |                                     |                              | 10. Inbox middleware: INSERT into Inbox
 ```
 
@@ -50,14 +50,18 @@ Sample publisher and subscriber applications demonstrating **Paramore.Brighter**
 
 - **Outbox**: In Postgres, `SELECT "MessageId", "Topic", "Dispatched" FROM "Outbox" LIMIT 5;`  
   If `Dispatched` is always NULL, clearing is not succeeding.
-- **RabbitMQ**: In the CloudAMQP (or management) UI, confirm queues `order.created.queue` and `greeting.made.queue` exist and that message count increases when the Publisher runs.
+- **RabbitMQ**: Confirm queues `order.lgs.wrapped.queue` and `rabbit.internal.wrapped.queue` (and bindings for routing keys `order.lgs.wrapped` / `rabbit.internal.wrapped`).
 - **Inbox**: Run the Subscriber; after it consumes messages you should see rows in `"Inbox"`. The Inbox table is created at startup using Brighter's `PostgreSqlInboxBuilder.GetDDL` in a single command; if you created the table manually with a different schema, drop it and restart the Subscriber so Brighter can recreate it.
 
 ## Solution layout
 
-- **BrighterEventing.Contracts** – Shared events and commands (no transport dependency).
-- **BrighterEventing.Publisher** – Sends commands; handlers deposit events into Postgres outbox and clear to RabbitMQ (or Azure when configured).
-- **BrighterEventing.Subscriber** – Subscribes to the bus, uses Postgres inbox, handles `OrderCreatedEvent` and `GreetingMadeEvent`.
+- **BrighterEventing.Messaging** – NuGet-style library (`net6.0` + `net8.0`): custom **`IAmAMessageMapperAsync`** implementations (`LgsEnvelopeBrighterEventMessageMapper`, `RabbitInternalEnvelopeBrighterEventMessageMapper`) turn wire (`LgsWire` / `RabbitWire`) into the published JSON body (`LgsPublishedMessage` / `RabbitPublishedMessage` with `common` metadata). `DepositPostAsync` uses the **async** mapper pipeline only — sync `IAmAMessageMapper<T>` is not invoked for outbox deposit. Brighter events `LgsEnvelopeBrighterEvent` and `RabbitInternalEnvelopeBrighterEvent`, routing key constants. No HTTP Event Service — payloads are built in the host and passed through Brighter to the broker.
+- **BrighterEventing.Publisher** – `PublishWrappedEnvelopeCommand` + handler: same DB transaction writes **`DemoOrders`** + outbox deposit; transport from config selects **Azure Lgs-shaped** vs **Rabbit internal-shaped** input.
+- **BrighterEventing.Subscriber** – Consumes wrapped events; Postgres inbox; retry + inbox idempotency on handlers.
+
+### Common metadata (`common` property)
+
+The Implementation Guide’s recommended minimum fields are populated **once**, on the nested `common` object (`CommonEventMetadata`), alongside the unchanged Lgs / Rabbit body fields at the root. The Brighter message mappers map from wire inputs without repeating the same values at two levels. Applications set `LgsWire` / `RabbitWire` on the event; optional `EnvelopeMapOptions` fills correlation and message id for Rabbit-style publishes.
 
 ## Prerequisites
 
@@ -126,12 +130,12 @@ Shared settings for both RabbitMQ and Azure Service Bus live under **`Messaging`
 | `Messaging:AzureServiceBus:DeadLetteringOnMessageExpiration` | Dead-letter on TTL expiry | true |
 | `Messaging:AzureServiceBus:DefaultMessageTimeToLiveDays` | Default message TTL (days) | 3 |
 
-- **Subscriber**: Uses these when creating subscriptions (RMQ and ASB). `OrderCreatedHandler` also uses a Polly retry pipeline (`ConsumerRetryPipeline`) with exponential backoff driven by `Messaging:Consumer` (in-handler retries).
+- **Subscriber**: Uses these when creating subscriptions (RMQ and ASB). `LgsEnvelopeHandler` / `RabbitInternalEnvelopeHandler` use a Polly retry pipeline (`ConsumerRetryPipeline`) with exponential backoff driven by `Messaging:Consumer` (in-handler retries).
 - **Publisher**: `Messaging:DeferredDelaySeconds` is reserved for future deferred/scheduled send.
 
 ### Testing retry and dead-letter
 
-- **Simulated failures**: In the Subscriber, set `Testing:SimulateFailureCount` to a positive number (e.g. `2`). The first N invocations of `GreetingMadeHandler` will throw; you can observe broker retries, requeue delay, and eventual success or dead-letter after max retries.
+- **Simulated failures**: `Testing:SimulateFailureCount` is reserved; wire a handler to throw on first N invocations if you want to reproduce DLQ behaviour (previously demonstrated with `GreetingMadeHandler`).
 - **How to test**: Run Subscriber with `Testing:SimulateFailureCount: 2` and `Messaging:Consumer:MaxRetryCount: 3`, start the Publisher, and watch logs: you should see "Simulated failure 1/2", then retries, then "Simulated failure 2/2", then "Greeting received" on the next delivery. With enough failures (e.g. set `SimulateFailureCount` higher than delivery count), messages will move to the broker’s dead-letter queue (RabbitMQ or ASB DLQ).
 - **Inbox/outbox**: Inbox and outbox behaviour is unchanged; simulated failures exercise the retry/DLQ path before a message is completed and recorded in the inbox.
 

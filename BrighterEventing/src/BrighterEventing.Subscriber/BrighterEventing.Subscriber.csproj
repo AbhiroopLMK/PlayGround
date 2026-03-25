@@ -25,7 +25,19 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\BrighterEventing.Contracts\BrighterEventing.Contracts.csproj" />
+    <ProjectReference Include="..\BrighterEventing.Messaging\BrighterEventing.Messaging.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="appsettings.Development.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="appsettings.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="secrets.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
   </ItemGroup>
 
 </Project>

@@ -1,18 +1,19 @@
-using BrighterEventing.Publisher.Commands;
+using BrighterEventing.Messaging;
+using BrighterEventing.Messaging.Events;
 using BrighterEventing.Publisher.Configuration;
 using BrighterEventing.Publisher.Infrastructure;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Npgsql;
 using Paramore.Brighter;
 using Paramore.Brighter.Extensions.DependencyInjection;
+using Paramore.Brighter.MessagingGateway.AzureServiceBus;
+using Paramore.Brighter.MessagingGateway.AzureServiceBus.ClientProvider;
 using Paramore.Brighter.MessagingGateway.RMQ.Async;
 using Paramore.Brighter.Outbox.PostgreSql;
 using Paramore.Brighter.PostgreSql.EntityFrameworkCore;
-using Npgsql;
-using Paramore.Brighter.MessagingGateway.AzureServiceBus;
-using Paramore.Brighter.MessagingGateway.AzureServiceBus.ClientProvider;
 using Polly;
 using Polly.Registry;
 using Polly.Retry;
@@ -27,7 +28,6 @@ internal static class Program
     {
         var builder = Host.CreateApplicationBuilder(args);
 
-        // secrets.json (gitignored) overwrites appsettings when present.
         builder.Configuration.AddJsonFile("secrets.json", optional: true, reloadOnChange: false);
 
         var config = builder.Configuration;
@@ -35,7 +35,6 @@ internal static class Program
             ?? throw new InvalidOperationException("ConnectionStrings:BrighterOutbox is required.");
         var transport = config["Transport"] ?? TransportType.RabbitMQ;
 
-        // DbContext for outbox transaction (HLD: Reliability via Outbox)
         builder.Services.AddDbContext<BrighterOutboxDbContext>(options =>
             options.UseNpgsql(connectionString));
 
@@ -66,22 +65,27 @@ internal static class Program
             producers.ConnectionProvider = typeof(Paramore.Brighter.PostgreSql.PostgreSqlConnectionProvider);
             producers.TransactionProvider = typeof(PostgreSqlEntityFrameworkTransactionProvider<BrighterOutboxDbContext>);
 
-        if (transport == TransportType.AzureServiceBus)
-        {
-            ConfigureAzureServiceBus(producers, config);
-        }
-        else
-        {
-            ConfigureRabbitMQ(producers, config);
-        }
+            if (transport == TransportType.AzureServiceBus)
+            {
+                ConfigureAzureServiceBus(producers, config);
+            }
+            else
+            {
+                ConfigureRabbitMQ(producers, config);
+            }
         })
-        .AutoFromAssemblies([typeof(Program).Assembly], [typeof(Contracts.Events.OrderCreatedEvent)]);
+        .AutoFromAssemblies(
+        [
+            typeof(Program).Assembly,
+            typeof(LgsEnvelopeBrighterEvent).Assembly
+        ]);
 
         builder.Services.AddHostedService<PublisherHostedService>();
 
         var host = builder.Build();
 
-        await EnsureOutboxTableAsync(host.Services, connectionString);
+        await EnsureOutboxTableAsync(connectionString);
+        await EnsureDemoOrdersTableAsync(connectionString);
 
         await host.RunAsync();
         return 0;
@@ -102,15 +106,15 @@ internal static class Program
 
         producers.ProducerRegistry = new RmqProducerRegistryFactory(connection,
         [
-            new RmqPublication<Contracts.Events.OrderCreatedEvent>
+            new RmqPublication<LgsEnvelopeBrighterEvent>
             {
                 MakeChannels = OnMissingChannel.Create,
-                Topic = new RoutingKey("order.created")
+                Topic = new RoutingKey(MessagingRoutingKeys.LgsWrapped)
             },
-            new RmqPublication<Contracts.Events.GreetingMadeEvent>
+            new RmqPublication<RabbitInternalEnvelopeBrighterEvent>
             {
                 MakeChannels = OnMissingChannel.Create,
-                Topic = new RoutingKey("greeting.made")
+                Topic = new RoutingKey(MessagingRoutingKeys.RabbitInternalWrapped)
             }
         ]).Create();
     }
@@ -121,26 +125,25 @@ internal static class Program
     {
         var connectionString = config["AzureServiceBus:ConnectionString"]
             ?? throw new InvalidOperationException("AzureServiceBus:ConnectionString is required when Transport=AzureServiceBus.");
-        var topicName = config["AzureServiceBus:TopicName"] ?? "brighter-events";
 
         var connection = new ServiceBusConnectionStringClientProvider(connectionString);
 
         producers.ProducerRegistry = new AzureServiceBusProducerRegistryFactory(connection,
         [
-            new AzureServiceBusPublication<Contracts.Events.OrderCreatedEvent>
+            new AzureServiceBusPublication<LgsEnvelopeBrighterEvent>
             {
                 MakeChannels = OnMissingChannel.Create,
-                Topic = new RoutingKey("order.created")
+                Topic = new RoutingKey(MessagingRoutingKeys.LgsWrapped)
             },
-            new AzureServiceBusPublication<Contracts.Events.GreetingMadeEvent>
+            new AzureServiceBusPublication<RabbitInternalEnvelopeBrighterEvent>
             {
                 MakeChannels = OnMissingChannel.Create,
-                Topic = new RoutingKey("greeting.made")
+                Topic = new RoutingKey(MessagingRoutingKeys.RabbitInternalWrapped)
             }
         ]).Create();
     }
 
-    private static async Task EnsureOutboxTableAsync(IServiceProvider services, string connectionString)
+    private static async Task EnsureOutboxTableAsync(string connectionString)
     {
         try
         {
@@ -159,6 +162,28 @@ internal static class Program
         catch (Exception ex)
         {
             Console.WriteLine($"Outbox table setup: {ex.Message}");
+        }
+    }
+
+    private static async Task EnsureDemoOrdersTableAsync(string connectionString)
+    {
+        try
+        {
+            await using var conn = new NpgsqlConnection(connectionString);
+            await conn.OpenAsync();
+            await using var cmd = conn.CreateCommand();
+            cmd.CommandText = """
+                CREATE TABLE IF NOT EXISTS "DemoOrders" (
+                    "Id" uuid NOT NULL PRIMARY KEY,
+                    "OrderKey" character varying(128) NOT NULL,
+                    "CreatedUtc" timestamp without time zone NOT NULL
+                );
+                """;
+            await cmd.ExecuteNonQueryAsync();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"DemoOrders table setup: {ex.Message}");
         }
     }
 }

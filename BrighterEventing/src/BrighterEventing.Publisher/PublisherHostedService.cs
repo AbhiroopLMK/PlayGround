@@ -1,22 +1,24 @@
+using BrighterEventing.Messaging;
+using BrighterEventing.Messaging.Wire;
 using BrighterEventing.Publisher.Commands;
 using BrighterEventing.Publisher.Configuration;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
+using Newtonsoft.Json.Linq;
 using Paramore.Brighter;
 
 namespace BrighterEventing.Publisher;
 
 /// <summary>
-/// Periodically sends commands to trigger outbox publishing. Demonstrates Durable Execution (sweeper clears outbox).
+/// Sends <see cref="PublishWrappedEnvelopeCommand"/> on an interval. Transport from config selects Lgs vs Rabbit-shaped payload; library builds wrapped envelope.
 /// </summary>
 public class PublisherHostedService : BackgroundService
 {
     private readonly IAmACommandProcessor _commandProcessor;
     private readonly IConfiguration _configuration;
     private readonly ILogger<PublisherHostedService> _logger;
-    private int _orderSequence;
-    private int _greetingSequence;
+    private int _sequence;
 
     public PublisherHostedService(
         IAmACommandProcessor commandProcessor,
@@ -32,35 +34,60 @@ public class PublisherHostedService : BackgroundService
     {
         var intervalSeconds = _configuration.GetValue("Publisher:SendIntervalSeconds", 5);
         var transport = _configuration["Transport"] ?? TransportType.RabbitMQ;
+        var useAzure = transport == TransportType.AzureServiceBus;
+
         _logger.LogInformation("Publisher started. Transport={Transport}, Interval={Interval}s", transport, intervalSeconds);
 
         while (!stoppingToken.IsCancellationRequested)
         {
             try
             {
-                _orderSequence++;
-                _greetingSequence++;
+                _sequence++;
+                var id = $"ORD-{DateTime.UtcNow:yyyyMMdd-HHmmss}-{_sequence}";
 
-                var orderCmd = new PublishOrderCreatedCommand
+                var cmd = new PublishWrappedEnvelopeCommand
                 {
-                    OrderId = $"ORD-{DateTime.UtcNow:yyyyMMdd-HHmmss}-{_orderSequence}",
-                    CustomerId = $"CUST-{_orderSequence % 10}",
-                    Amount = 100.50m + _orderSequence
+                    UseAzureLgsShape = useAzure
                 };
-                await _commandProcessor.SendAsync(orderCmd, cancellationToken: stoppingToken);
 
-                var greetingCmd = new PublishGreetingCommand
+                if (useAzure)
                 {
-                    PersonName = $"User-{_greetingSequence}",
-                    Greeting = $"Hello from BrighterEventing at {DateTime.UtcNow:O}"
-                };
-                await _commandProcessor.SendAsync(greetingCmd, cancellationToken: stoppingToken);
+                    cmd.LgsInput = new LgsEventWire
+                    {
+                        SpecVersion = "1.0",
+                        Type = "order.accepted",
+                        Source = "/orders/order.accepted",
+                        Id = Guid.NewGuid().ToString("N"),
+                        SessionId = id,
+                        Time = DateTime.UtcNow,
+                        DataContentType = "application/json",
+                        Data = new LgsEventDataWire
+                        {
+                            DataType = "application/json",
+                            EventData = JObject.FromObject(new { orderId = id, amount = 100.5m + _sequence })
+                        }
+                    };
+                }
+                else
+                {
+                    cmd.RabbitInput = new RabbitInternalEventWire
+                    {
+                        MessageName = "transaction.request.updated",
+                        Version = "1.0",
+                        Payload = new { transactionId = id, status = "Submitted" },
+                        MessageId = Guid.NewGuid().ToString("N"),
+                        CorrelationId = Guid.NewGuid().ToString("N"),
+                        ContentType = "application/json"
+                    };
+                }
 
-                _logger.LogInformation("Sent PublishOrderCreated and PublishGreeting commands");
+                await _commandProcessor.SendAsync(cmd, cancellationToken: stoppingToken);
+
+                _logger.LogInformation("Sent PublishWrappedEnvelopeCommand (AzureShape={Azure})", useAzure);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error sending commands");
+                _logger.LogError(ex, "Error sending wrapped envelope command");
             }
 
             await Task.Delay(TimeSpan.FromSeconds(intervalSeconds), stoppingToken);
