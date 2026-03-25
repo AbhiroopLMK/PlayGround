@@ -43,7 +43,7 @@ public sealed class LgsEnvelopeBrighterEventMessageMapper : IAmAMessageMapperAsy
             topic: topic,
             messageType: MessageType.MT_EVENT);
 
-        header.Bag.Add("session-id", request.Id);
+        header.Bag.Add("SessionId", request.Id);
         return Task.FromResult(new Message(header, body));
     }
 
