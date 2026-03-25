@@ -136,14 +136,22 @@ internal static class Program
             }
             else
             {
-                var amqpUri = config["RabbitMQ:AmqpUri"] ?? "amqp://guest:guest@localhost:5672";
+                var amqpUri = RabbitMqAmqpUri.Resolve(
+                    config["RabbitMQ:AmqpUri"],
+                    config["RabbitMqSettings:HostName"],
+                    config["RabbitMqSettings:Port"],
+                    config["RabbitMqSettings:Username"],
+                    config["RabbitMqSettings:Password"]);
                 var exchangeName = config["RabbitMQ:Exchange"] ?? "brighter.eventing.exchange";
                 var subscriptionName = config["RabbitMQ:SubscriptionName"] ?? "brighter-eventing-subscriber";
+                var clientProvidedName = config["RabbitMqSettings:ClientProvidedName"];
                 var connection = new RmqMessagingGatewayConnection
                 {
                     AmpqUri = new AmqpUriSpecification(new Uri(amqpUri)),
                     Exchange = new Exchange(exchangeName)
                 };
+                if (!string.IsNullOrWhiteSpace(clientProvidedName))
+                    connection.Name = clientProvidedName;
                 consumers.Subscriptions =
                 [
                     new RmqSubscription<LgsEnvelopeBrighterEvent>(
