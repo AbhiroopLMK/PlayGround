@@ -1,23 +1,11 @@
-using BrighterEventing.Messaging;
-using BrighterEventing.Messaging.AzureServiceBus;
-using BrighterEventing.Messaging.Events;
-using BrighterEventing.Publisher.Configuration;
+using BrighterEventing.Messaging.Configuration;
+using BrighterEventing.Messaging.PostgreSql.Configuration;
 using BrighterEventing.Publisher.Infrastructure;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Npgsql;
-using Paramore.Brighter;
-using Paramore.Brighter.Extensions.DependencyInjection;
-using Paramore.Brighter.MessagingGateway.AzureServiceBus;
-using Paramore.Brighter.MessagingGateway.AzureServiceBus.ClientProvider;
-using Paramore.Brighter.MessagingGateway.RMQ.Async;
-using Paramore.Brighter.Outbox.PostgreSql;
-using Paramore.Brighter.PostgreSql.EntityFrameworkCore;
-using Polly;
-using Polly.Registry;
-using Polly.Retry;
 
 namespace BrighterEventing.Publisher;
 
@@ -32,125 +20,25 @@ internal static class Program
         builder.Configuration.AddJsonFile("secrets.json", optional: true, reloadOnChange: false);
 
         var config = builder.Configuration;
-        var connectionString = config.GetConnectionString("BrighterOutbox")
+        var outboxConnectionString = config.GetConnectionString("BrighterOutbox")
             ?? throw new InvalidOperationException("ConnectionStrings:BrighterOutbox is required.");
-        var transport = config["Transport"] ?? TransportType.RabbitMQ;
 
         builder.Services.AddDbContext<BrighterOutboxDbContext>(options =>
-            options.UseNpgsql(connectionString));
+            options.UseNpgsql(outboxConnectionString));
 
-        var outboxConfig = new Paramore.Brighter.RelationalDatabaseConfiguration(
-            connectionString,
-            databaseName: "neondb",
-            outBoxTableName: OutboxTableName);
-
-        builder.Services.AddSingleton<Paramore.Brighter.IAmARelationalDatabaseConfiguration>(outboxConfig);
-
-        var resiliencePipelineRegistry = new ResiliencePipelineRegistry<string>();
-        resiliencePipelineRegistry.TryAddBuilder(CommandProcessor.OutboxProducer, (builder, _) =>
-            builder.AddRetry(new RetryStrategyOptions
-            {
-                MaxRetryAttempts = 1,
-                Delay = TimeSpan.Zero,
-            }));
-
-        builder.Services.AddBrighter(options =>
-        {
-            options.HandlerLifetime = ServiceLifetime.Scoped;
-            options.MapperLifetime = ServiceLifetime.Singleton;
-            options.ResiliencePipelineRegistry = resiliencePipelineRegistry;
-        })
-        .AddProducers(producers =>
-        {
-            producers.Outbox = new PostgreSqlOutbox(outboxConfig);
-            producers.ConnectionProvider = typeof(Paramore.Brighter.PostgreSql.PostgreSqlConnectionProvider);
-            producers.TransactionProvider = typeof(PostgreSqlEntityFrameworkTransactionProvider<BrighterOutboxDbContext>);
-
-            if (transport == TransportType.AzureServiceBus)
-            {
-                ConfigureAzureServiceBus(producers, config);
-            }
-            else
-            {
-                ConfigureRabbitMQ(producers, config);
-            }
-        })
-        .AutoFromAssemblies(
-        [
-            typeof(Program).Assembly,
-            typeof(LgsEnvelopeBrighterEvent).Assembly
-        ]);
+        builder.Services.AddBrighterEventingPublisherMessaging(
+            config,
+            PostgreSqlPublisherBrighterSetup.CreateProducersConfigurer(builder.Services, config));
 
         builder.Services.AddHostedService<PublisherHostedService>();
 
         var host = builder.Build();
 
-        await EnsureOutboxTableAsync(connectionString);
-        await EnsureDemoOrdersTableAsync(connectionString);
+        await EnsureOutboxTableAsync(outboxConnectionString);
+        await EnsureDemoOrdersTableAsync(outboxConnectionString);
 
         await host.RunAsync();
         return 0;
-    }
-
-    private static void ConfigureRabbitMQ(
-        dynamic producers,
-        IConfiguration config)
-    {
-        var amqpUri = RabbitMqAmqpUri.Resolve(
-            config["RabbitMQ:AmqpUri"],
-            config["RabbitMqSettings:HostName"],
-            config["RabbitMqSettings:Port"],
-            config["RabbitMqSettings:Username"],
-            config["RabbitMqSettings:Password"]);
-        var exchangeName = config["RabbitMQ:Exchange"] ?? "brighter.eventing.exchange";
-        var clientProvidedName = config["RabbitMqSettings:ClientProvidedName"];
-
-        var connection = new RmqMessagingGatewayConnection
-        {
-            AmpqUri = new AmqpUriSpecification(new Uri(amqpUri)),
-            Exchange = new Exchange(exchangeName)
-        };
-        if (!string.IsNullOrWhiteSpace(clientProvidedName))
-            connection.Name = clientProvidedName;
-
-        producers.ProducerRegistry = new RmqProducerRegistryFactory(connection,
-        [
-            new RmqPublication<LgsEnvelopeBrighterEvent>
-            {
-                MakeChannels = OnMissingChannel.Create,
-                Topic = new RoutingKey(MessagingRoutingKeys.LgsWrapped)
-            },
-            new RmqPublication<RabbitInternalEnvelopeBrighterEvent>
-            {
-                MakeChannels = OnMissingChannel.Create,
-                Topic = new RoutingKey(MessagingRoutingKeys.RabbitInternalWrapped)
-            }
-        ]).Create();
-    }
-
-    private static void ConfigureAzureServiceBus(
-        dynamic producers,
-        IConfiguration config)
-    {
-        var connectionString = config["AzureServiceBus:ConnectionString"]
-            ?? throw new InvalidOperationException("AzureServiceBus:ConnectionString is required when Transport=AzureServiceBus.");
-
-        var connection = new ServiceBusConnectionStringClientProvider(connectionString);
-
-        producers.ProducerRegistry = new SessionAwareAzureServiceBusProducerRegistryFactory(connection,
-        [
-            new AzureServiceBusPublication<LgsEnvelopeBrighterEvent>
-            {
-                MakeChannels = OnMissingChannel.Create,
-                Topic = new RoutingKey(MessagingRoutingKeys.LgsWrapped),
-                
-            },
-            new AzureServiceBusPublication<RabbitInternalEnvelopeBrighterEvent>
-            {
-                MakeChannels = OnMissingChannel.Create,
-                Topic = new RoutingKey(MessagingRoutingKeys.RabbitInternalWrapped)
-            }
-        ]).Create();
     }
 
     private static async Task EnsureOutboxTableAsync(string connectionString)

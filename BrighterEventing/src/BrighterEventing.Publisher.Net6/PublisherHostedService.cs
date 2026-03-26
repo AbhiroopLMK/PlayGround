@@ -1,17 +1,16 @@
-using BrighterEventing.Messaging;
+using BrighterEventing.Publisher.Net6.Commands;
+using BrighterEventing.Publisher.Net6.Configuration;
 using BrighterEventing.Messaging.Wire;
-using BrighterEventing.Publisher.Commands;
-using BrighterEventing.Publisher.Configuration;
-using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json.Linq;
 using Paramore.Brighter;
 
-namespace BrighterEventing.Publisher;
+namespace BrighterEventing.Publisher.Net6;
 
 /// <summary>
-/// Sends <see cref="PublishWrappedEnvelopeCommand"/> on an interval. Transport from config selects Lgs vs Rabbit-shaped payload; library builds wrapped envelope.
+/// Sends <see cref="PublishWrappedEnvelopeCommand"/> on an interval (same behavior as net8 sample host).
 /// </summary>
 public class PublisherHostedService : BackgroundService
 {
@@ -38,7 +37,7 @@ public class PublisherHostedService : BackgroundService
             ?? TransportType.RabbitMQ;
         var useAzure = transport == TransportType.AzureServiceBus;
 
-        _logger.LogInformation("Publisher started. Transport={Transport}, Interval={Interval}s", transport, intervalSeconds);
+        _logger.LogInformation("Net6 publisher started. Transport={Transport}, Interval={Interval}s", transport, intervalSeconds);
 
         while (!stoppingToken.IsCancellationRequested)
         {
@@ -47,10 +46,7 @@ public class PublisherHostedService : BackgroundService
                 _sequence++;
                 var id = $"ORD-{DateTime.UtcNow:yyyyMMdd-HHmmss}-{_sequence}";
 
-                var cmd = new PublishWrappedEnvelopeCommand
-                {
-                    UseAzureLgsShape = useAzure
-                };
+                var cmd = new PublishWrappedEnvelopeCommand { UseAzureLgsShape = useAzure };
 
                 if (useAzure)
                 {
@@ -84,7 +80,6 @@ public class PublisherHostedService : BackgroundService
                 }
 
                 await _commandProcessor.SendAsync(cmd, cancellationToken: stoppingToken);
-
                 _logger.LogInformation("Sent PublishWrappedEnvelopeCommand (AzureShape={Azure})", useAzure);
             }
             catch (Exception ex)

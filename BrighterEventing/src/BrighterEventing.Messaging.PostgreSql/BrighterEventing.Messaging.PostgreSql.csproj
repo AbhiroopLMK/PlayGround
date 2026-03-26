@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\BrighterEventing.Messaging\BrighterEventing.Messaging.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Paramore.Brighter" Version="10.3.0" />
+    <PackageReference Include="Paramore.Brighter.Extensions.DependencyInjection" Version="10.3.0" />
+    <PackageReference Include="Paramore.Brighter.Inbox.Postgres" Version="10.3.0" />
+    <PackageReference Include="Paramore.Brighter.Outbox.PostgreSql" Version="10.3.0" />
+    <PackageReference Include="Paramore.Brighter.PostgreSql" Version="10.3.0" />
+    <PackageReference Include="Paramore.Brighter.ServiceActivator.Extensions.DependencyInjection" Version="10.3.0" />
+  </ItemGroup>
+
+</Project>
