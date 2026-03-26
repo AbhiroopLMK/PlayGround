@@ -1,4 +1,5 @@
 using BrighterEventing.Messaging;
+using BrighterEventing.Messaging.AzureServiceBus;
 using BrighterEventing.Messaging.Events;
 using BrighterEventing.Publisher.Configuration;
 using BrighterEventing.Publisher.Infrastructure;
@@ -136,12 +137,13 @@ internal static class Program
 
         var connection = new ServiceBusConnectionStringClientProvider(connectionString);
 
-        producers.ProducerRegistry = new AzureServiceBusProducerRegistryFactory(connection,
+        producers.ProducerRegistry = new SessionAwareAzureServiceBusProducerRegistryFactory(connection,
         [
             new AzureServiceBusPublication<LgsEnvelopeBrighterEvent>
             {
                 MakeChannels = OnMissingChannel.Create,
-                Topic = new RoutingKey(MessagingRoutingKeys.LgsWrapped)
+                Topic = new RoutingKey(MessagingRoutingKeys.LgsWrapped),
+                
             },
             new AzureServiceBusPublication<RabbitInternalEnvelopeBrighterEvent>
             {

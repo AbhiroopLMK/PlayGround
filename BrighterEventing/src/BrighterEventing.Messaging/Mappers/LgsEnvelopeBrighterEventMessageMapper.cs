@@ -1,4 +1,5 @@
 using BrighterEventing.Messaging;
+using BrighterEventing.Messaging.AzureServiceBus;
 using BrighterEventing.Messaging.Envelope;
 using BrighterEventing.Messaging.Events;
 using BrighterEventing.Messaging.Wire;
@@ -35,7 +36,10 @@ public sealed class LgsEnvelopeBrighterEventMessageMapper : IAmAMessageMapperAsy
 
         var topic = publication.Topic ?? new RoutingKey(MessagingRoutingKeys.LgsWrapped);
         var envelope = MapWireToPublished(request.LgsWire, request.EnvelopeOptions);
-        envelope.SessionId = request.Id;
+        var sessionId = !string.IsNullOrEmpty(request.LgsWire.SessionId)
+            ? request.LgsWire.SessionId
+            : (string)request.Id;
+        envelope.SessionId = sessionId;
         var json = JsonConvert.SerializeObject(envelope, JsonSettings);
         var body = new MessageBody(json);
         var header = new MessageHeader(
@@ -43,7 +47,7 @@ public sealed class LgsEnvelopeBrighterEventMessageMapper : IAmAMessageMapperAsy
             topic: topic,
             messageType: MessageType.MT_EVENT);
 
-        header.Bag.Add("SessionId", request.Id);
+        header.SetAzureServiceBusSessionId(sessionId);
         return Task.FromResult(new Message(header, body));
     }
 

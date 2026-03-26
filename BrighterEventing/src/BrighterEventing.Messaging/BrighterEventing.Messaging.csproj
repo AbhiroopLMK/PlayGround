@@ -13,6 +13,7 @@
   <ItemGroup>
     <PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
     <PackageReference Include="Paramore.Brighter" Version="10.3.0" />
+    <PackageReference Include="Paramore.Brighter.MessagingGateway.AzureServiceBus" Version="10.3.0" />
   </ItemGroup>
 
 </Project>
