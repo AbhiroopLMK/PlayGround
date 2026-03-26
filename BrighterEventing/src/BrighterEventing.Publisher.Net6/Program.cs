@@ -1,5 +1,6 @@
 using BrighterEventing.Messaging.Configuration;
 using BrighterEventing.Publisher.Net6;
+using BrighterEventing.Sample.DomainEvents;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -20,7 +21,15 @@ var host = Host.CreateDefaultBuilder(args)
     })
     .ConfigureServices((context, services) =>
     {
-        services.AddBrighterEventingPublisherMessaging(context.Configuration);
+        services.AddBrighterEventingPublisherMessaging(
+            context.Configuration,
+            catalog =>
+            {
+                catalog.Map<OrderCreatedEvent>(nameof(OrderCreatedEvent), "OrderCreated");
+                catalog.Map<OrderUpdatedEvent>(nameof(OrderUpdatedEvent), "OrderUpdated");
+                catalog.Map<OrderCancelledEvent>(nameof(OrderCancelledEvent), "OrderCancelled");
+            },
+            typeof(OrderCreatedEvent).Assembly);
         services.AddHostedService<PublisherHostedService>();
     })
     .Build();

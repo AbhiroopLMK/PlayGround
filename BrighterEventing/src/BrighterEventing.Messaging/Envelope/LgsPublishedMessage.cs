@@ -25,6 +25,6 @@ public class LgsPublishedMessage
 
     public JObject? EventData { get; set; }
 
-    /// <summary>Recommended minimum metadata (messageId, correlationId, …) — populated by <see cref="BrighterEventing.Messaging.Mappers.LgsEnvelopeBrighterEventMessageMapper"/> when publishing.</summary>
-    public CommonEventMetadata? Common { get; set; }
+    /// <summary>Recommended minimum metadata (messageId, correlationId, …) — populated by application mappers when publishing Lgs-shaped bodies (see <see cref="Mappers.WireEnvelopeBuilder"/>).</summary>
+    public EventMetadata? Common { get; set; }
 }

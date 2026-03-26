@@ -1,6 +1,7 @@
 using BrighterEventing.Messaging.Configuration;
 using BrighterEventing.Messaging.PostgreSql.Configuration;
 using BrighterEventing.Publisher.Infrastructure;
+using BrighterEventing.Sample.DomainEvents;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -28,7 +29,14 @@ internal static class Program
 
         builder.Services.AddBrighterEventingPublisherMessaging(
             config,
-            PostgreSqlPublisherBrighterSetup.CreateProducersConfigurer(builder.Services, config));
+            catalog =>
+            {
+                catalog.Map<OrderCreatedEvent>(nameof(OrderCreatedEvent), "OrderCreated");
+                catalog.Map<OrderUpdatedEvent>(nameof(OrderUpdatedEvent), "OrderUpdated");
+                catalog.Map<OrderCancelledEvent>(nameof(OrderCancelledEvent), "OrderCancelled");
+            },
+            PostgreSqlPublisherBrighterSetup.CreateProducersConfigurer(builder.Services, config),
+            typeof(OrderCreatedEvent).Assembly);
 
         builder.Services.AddHostedService<PublisherHostedService>();
 

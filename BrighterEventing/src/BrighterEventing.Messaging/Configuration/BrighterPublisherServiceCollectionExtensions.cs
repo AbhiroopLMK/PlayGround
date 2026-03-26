@@ -1,5 +1,4 @@
 using BrighterEventing.Messaging.AzureServiceBus;
-using BrighterEventing.Messaging.Events;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Paramore.Brighter;
@@ -29,25 +28,54 @@ public static class BrighterPublisherServiceCollectionExtensions
         return options;
     }
 
-    /// <summary>Registers Brighter producers for BrighterEventing (RabbitMQ or Azure Service Bus).</summary>
-    /// <param name="autoFromAssemblies">
-    /// Optional extra assemblies for Brighter <c>AutoFromAssemblies</c> (handlers, mappers). When omitted or empty,
-    /// <see cref="BrighterEventingAssemblyRegistration.ResolveAutoFromAssemblies"/> uses the entry assembly and the shared messaging assembly.
-    /// </param>
+    /// <summary>Registers Brighter producers (RabbitMQ or Azure Service Bus). Registers <see cref="IEventTypeRegistry"/> from <paramref name="configureEventTypes"/>.</summary>
     public static IServiceCollection AddBrighterEventingPublisherMessaging(
         this IServiceCollection services,
         IConfiguration configuration,
+        Action<EventTypeCatalogBuilder> configureEventTypes,
         params Assembly[] autoFromAssemblies) =>
-        services.AddBrighterEventingPublisherMessaging(configuration, configureProducersBeforeTransport: null, autoFromAssemblies);
+        services.AddBrighterEventingPublisherMessaging(
+            configuration,
+            configureEventTypes,
+            configureProducersBeforeTransport: null,
+            autoFromAssemblies);
 
     /// <summary>Registers Brighter producers; optional callback runs inside <c>AddProducers</c> before transport wiring (e.g. PostgreSQL outbox).</summary>
-    /// <param name="autoFromAssemblies">
-    /// Optional extra assemblies for Brighter <c>AutoFromAssemblies</c>. When omitted or empty,
-    /// <see cref="BrighterEventingAssemblyRegistration.ResolveAutoFromAssemblies"/> uses the entry assembly and the shared messaging assembly.
-    /// </param>
     public static IServiceCollection AddBrighterEventingPublisherMessaging(
         this IServiceCollection services,
         IConfiguration configuration,
+        Action<EventTypeCatalogBuilder> configureEventTypes,
+        Action<dynamic, BrighterPublisherOptions>? configureProducersBeforeTransport,
+        params Assembly[] autoFromAssemblies)
+    {
+        var builder = new EventTypeCatalogBuilder();
+        configureEventTypes(builder);
+        var registry = builder.Build();
+        services.AddSingleton<IEventTypeRegistry>(registry);
+        return services.AddBrighterEventingPublisherMessaging(
+            configuration,
+            registry,
+            configureProducersBeforeTransport,
+            autoFromAssemblies);
+    }
+
+    /// <summary>Registers Brighter producers using an existing <see cref="IEventTypeRegistry"/> (e.g. built in a composition root).</summary>
+    public static IServiceCollection AddBrighterEventingPublisherMessaging(
+        this IServiceCollection services,
+        IConfiguration configuration,
+        IEventTypeRegistry eventTypeRegistry,
+        params Assembly[] autoFromAssemblies) =>
+        services.AddBrighterEventingPublisherMessaging(
+            configuration,
+            eventTypeRegistry,
+            configureProducersBeforeTransport: null,
+            autoFromAssemblies);
+
+    /// <summary>Registers Brighter producers; optional callback runs inside <c>AddProducers</c> before transport wiring (e.g. PostgreSQL outbox).</summary>
+    public static IServiceCollection AddBrighterEventingPublisherMessaging(
+        this IServiceCollection services,
+        IConfiguration configuration,
+        IEventTypeRegistry eventTypeRegistry,
         Action<dynamic, BrighterPublisherOptions>? configureProducersBeforeTransport,
         params Assembly[] autoFromAssemblies)
     {
@@ -73,11 +101,11 @@ public static class BrighterPublisherServiceCollectionExtensions
 
             if (options.Transport == BrokerType.AzureServiceBus)
             {
-                ConfigureAzureServiceBus(producers, options);
+                ConfigureAzureServiceBus(producers, options, eventTypeRegistry);
             }
             else
             {
-                ConfigureRabbitMq(producers, options);
+                ConfigureRabbitMq(producers, options, eventTypeRegistry);
             }
         })
         .AutoFromAssemblies(BrighterEventingAssemblyRegistration.ResolveAutoFromAssemblies(autoFromAssemblies));
@@ -85,7 +113,7 @@ public static class BrighterPublisherServiceCollectionExtensions
         return services;
     }
 
-    private static void ConfigureRabbitMq(dynamic producers, BrighterPublisherOptions options)
+    private static void ConfigureRabbitMq(dynamic producers, BrighterPublisherOptions options, IEventTypeRegistry eventTypeRegistry)
     {
         var amqpUri = RabbitMqAmqpUri.Resolve(
             options.RabbitMQ.AmqpUri,
@@ -103,39 +131,17 @@ public static class BrighterPublisherServiceCollectionExtensions
             connection.Name = options.RabbitMQ.ClientProvidedName;
 
         producers.ProducerRegistry = new RmqProducerRegistryFactory(connection,
-        [
-            new RmqPublication<LgsEnvelopeBrighterEvent>
-            {
-                MakeChannels = OnMissingChannel.Create,
-                Topic = new RoutingKey(MessagingRoutingKeys.LgsWrapped)
-            },
-            new RmqPublication<RabbitInternalEnvelopeBrighterEvent>
-            {
-                MakeChannels = OnMissingChannel.Create,
-                Topic = new RoutingKey(MessagingRoutingKeys.RabbitInternalWrapped)
-            }
-        ]).Create();
+            BrighterMessagingBrokerRegistration.BuildRmqPublications(options, eventTypeRegistry)).Create();
     }
 
-    private static void ConfigureAzureServiceBus(dynamic producers, BrighterPublisherOptions options)
+    private static void ConfigureAzureServiceBus(dynamic producers, BrighterPublisherOptions options, IEventTypeRegistry eventTypeRegistry)
     {
         if (string.IsNullOrWhiteSpace(options.AzureServiceBus.ConnectionString))
             throw new InvalidOperationException("Azure Service Bus connection string is required when Transport=AzureServiceBus.");
 
         var connection = new ServiceBusConnectionStringClientProvider(options.AzureServiceBus.ConnectionString!);
         producers.ProducerRegistry = new SessionAwareAzureServiceBusProducerRegistryFactory(connection,
-        [
-            new AzureServiceBusPublication<LgsEnvelopeBrighterEvent>
-            {
-                MakeChannels = OnMissingChannel.Create,
-                Topic = new RoutingKey(MessagingRoutingKeys.LgsWrapped),
-            },
-            new AzureServiceBusPublication<RabbitInternalEnvelopeBrighterEvent>
-            {
-                MakeChannels = OnMissingChannel.Create,
-                Topic = new RoutingKey(MessagingRoutingKeys.RabbitInternalWrapped)
-            }
-        ]).Create();
+            BrighterMessagingBrokerRegistration.BuildAzureServiceBusPublications(options, eventTypeRegistry)).Create();
     }
 
     private static void BindFallbackPublisherSettingsFromLegacyConfig(IConfiguration configuration, BrighterPublisherOptions options)

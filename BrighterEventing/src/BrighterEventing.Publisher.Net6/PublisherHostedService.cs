@@ -1,16 +1,14 @@
 using BrighterEventing.Publisher.Net6.Commands;
 using BrighterEventing.Publisher.Net6.Configuration;
-using BrighterEventing.Messaging.Wire;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-using Newtonsoft.Json.Linq;
 using Paramore.Brighter;
 
 namespace BrighterEventing.Publisher.Net6;
 
 /// <summary>
-/// Sends <see cref="PublishWrappedEnvelopeCommand"/> on an interval (same behavior as net8 sample host).
+/// Sends <see cref="PublishDomainEventCommand"/> on an interval, rotating OrderCreated / OrderUpdated / OrderCancelled.
 /// </summary>
 public class PublisherHostedService : BackgroundService
 {
@@ -35,7 +33,6 @@ public class PublisherHostedService : BackgroundService
         var transport = _configuration["BrighterMessaging:Publisher:Transport"]
             ?? _configuration["Transport"]
             ?? TransportType.RabbitMQ;
-        var useAzure = transport == TransportType.AzureServiceBus;
 
         _logger.LogInformation("Net6 publisher started. Transport={Transport}, Interval={Interval}s", transport, intervalSeconds);
 
@@ -45,46 +42,30 @@ public class PublisherHostedService : BackgroundService
             {
                 _sequence++;
                 var id = $"ORD-{DateTime.UtcNow:yyyyMMdd-HHmmss}-{_sequence}";
+                var kind = (DomainEventKind)((_sequence - 1) % 3);
 
-                var cmd = new PublishWrappedEnvelopeCommand { UseAzureLgsShape = useAzure };
-
-                if (useAzure)
+                var cmd = new PublishDomainEventCommand
                 {
-                    cmd.LgsInput = new LgsEventWire
+                    Kind = kind,
+                    OrderId = id,
+                    Amount = 100.5m + _sequence,
+                    Status = "Shipped",
+                    Reason = "Customer request",
+                    PublishRoutingKey = kind switch
                     {
-                        SpecVersion = "1.0",
-                        Type = "order.accepted",
-                        Source = "/orders/order.accepted",
-                        Id = Guid.NewGuid().ToString("N"),
-                        SessionId = id,
-                        Time = DateTime.UtcNow,
-                        DataContentType = "application/json",
-                        Data = new LgsEventDataWire
-                        {
-                            DataType = "application/json",
-                            EventData = JObject.FromObject(new { orderId = id, amount = 100.5m + _sequence })
-                        }
-                    };
-                }
-                else
-                {
-                    cmd.RabbitInput = new RabbitInternalEventWire
-                    {
-                        MessageName = "transaction.request.updated",
-                        Version = "1.0",
-                        Payload = new { transactionId = id, status = "Submitted" },
-                        MessageId = Guid.NewGuid().ToString("N"),
-                        CorrelationId = Guid.NewGuid().ToString("N"),
-                        ContentType = "application/json"
-                    };
-                }
+                        DomainEventKind.OrderCreated => _configuration["Publisher:OrderCreatedPublishRoutingKey"],
+                        DomainEventKind.OrderUpdated => _configuration["Publisher:OrderUpdatedPublishRoutingKey"],
+                        DomainEventKind.OrderCancelled => _configuration["Publisher:OrderCancelledPublishRoutingKey"],
+                        _ => null
+                    }
+                };
 
                 await _commandProcessor.SendAsync(cmd, cancellationToken: stoppingToken);
-                _logger.LogInformation("Sent PublishWrappedEnvelopeCommand (AzureShape={Azure})", useAzure);
+                _logger.LogInformation("Sent PublishDomainEventCommand Kind={Kind}", kind);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error sending wrapped envelope command");
+                _logger.LogError(ex, "Error sending publish domain event command");
             }
 
             await Task.Delay(TimeSpan.FromSeconds(intervalSeconds), stoppingToken);

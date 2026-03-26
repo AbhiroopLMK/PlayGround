@@ -11,6 +11,6 @@ public class RabbitPublishedMessage
 
     public object? Payload { get; set; }
 
-    /// <summary>Recommended minimum metadata — populated by <see cref="BrighterEventing.Messaging.Mappers.RabbitInternalEnvelopeBrighterEventMessageMapper"/> when publishing.</summary>
-    public CommonEventMetadata? Common { get; set; }
+    /// <summary>Recommended minimum metadata — populated by domain event mappers when publishing Rabbit-shaped bodies.</summary>
+    public EventMetadata? Common { get; set; }
 }

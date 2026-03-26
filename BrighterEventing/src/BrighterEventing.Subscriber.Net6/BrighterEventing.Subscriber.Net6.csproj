@@ -11,6 +11,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\BrighterEventing.Messaging\BrighterEventing.Messaging.csproj" />
+    <ProjectReference Include="..\BrighterEventing.Sample.DomainEvents\BrighterEventing.Sample.DomainEvents.csproj" />
   </ItemGroup>
 
   <ItemGroup>

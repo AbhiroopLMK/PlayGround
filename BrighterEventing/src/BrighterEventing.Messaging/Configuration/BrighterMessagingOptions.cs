@@ -1,5 +1,29 @@
 namespace BrighterEventing.Messaging.Configuration;
 
+/// <summary>One publisher registration: domain event type name + routing key (RabbitMQ topic / ASB subject path).</summary>
+public sealed class PublicationBinding
+{
+    /// <summary>Domain event, e.g. <c>OrderCreatedEvent</c> or <c>OrderCreated</c>.</summary>
+    public string EventType { get; set; } = "";
+
+    public string RoutingKey { get; set; } = "";
+}
+
+/// <summary>One consumer subscription: domain event type, routing key, and broker-specific names.</summary>
+public sealed class SubscriptionBinding
+{
+    /// <summary>Domain event, e.g. <c>OrderCreatedEvent</c> or <c>OrderCreated</c>.</summary>
+    public string EventType { get; set; } = "";
+
+    public string RoutingKey { get; set; } = "";
+
+    /// <summary>RabbitMQ subscription name and Azure Service Bus subscription name when not overridden per binding.</summary>
+    public string SubscriptionName { get; set; } = "";
+
+    /// <summary>Queue name (RabbitMQ) or channel name (Azure Service Bus). When empty for Azure Service Bus, defaults to <see cref="SubscriptionName"/>.</summary>
+    public string ChannelName { get; set; } = "";
+}
+
 public static class BrokerType
 {
     public const string RabbitMQ = "RabbitMQ";
@@ -30,6 +54,11 @@ public sealed class BrighterPublisherOptions
     public AzureServiceBusPublisherOptions AzureServiceBus { get; set; } = new();
     public CosmosDbOptions CosmosDb { get; set; } = new();
     public RetryOptions Retry { get; set; } = new();
+
+    /// <summary>
+    /// Application-defined publications (routing keys / ASB topics). Multiple entries per event type are allowed.
+    /// </summary>
+    public List<PublicationBinding> Publications { get; set; } = new();
 }
 
 public sealed class BrighterSubscriberOptions
@@ -48,6 +77,11 @@ public sealed class BrighterSubscriberOptions
     public AzureServiceBusSubscriberOptions AzureServiceBus { get; set; } = new();
     public CosmosDbOptions CosmosDb { get; set; } = new();
     public RetryOptions Retry { get; set; } = new();
+
+    /// <summary>
+    /// Application-defined subscriptions (routing keys, queue/channel names). Multiple entries per event type are allowed.
+    /// </summary>
+    public List<SubscriptionBinding> Subscriptions { get; set; } = new();
 }
 
 public sealed class CosmosDbOptions
@@ -91,8 +125,6 @@ public sealed class RabbitSubscriberOptions
     public string? Password { get; set; }
     public string Exchange { get; set; } = "brighter.eventing.exchange";
     public string SubscriptionName { get; set; } = "brighter-eventing-subscriber";
-    public string LgsChannelName { get; set; } = "order.lgs.wrapped.queue";
-    public string RabbitInternalChannelName { get; set; } = "rabbit.internal.wrapped.queue";
     public string? ClientProvidedName { get; set; }
 }
 

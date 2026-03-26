@@ -3,7 +3,7 @@ namespace BrighterEventing.Messaging.Envelope;
 /// <summary>
 /// Recommended minimum metadata (Implementation Guide) — duplicated from transport-specific fields for forward compatibility.
 /// </summary>
-public class CommonEventMetadata
+public class EventMetadata
 {
     public string? MessageId { get; set; }
 

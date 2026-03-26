@@ -1,6 +1,7 @@
 using BrighterEventing.Messaging.Configuration;
 using BrighterEventing.Messaging.PostgreSql.Configuration;
 using BrighterEventing.Subscriber.Configuration;
+using BrighterEventing.Sample.DomainEvents;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -23,7 +24,14 @@ internal static class Program
         builder.Services.Configure<TestingOptions>(config.GetSection(TestingOptions.SectionName));
         builder.Services.AddBrighterEventingSubscriberMessaging(
             config,
-            PostgreSqlSubscriberBrighterSetup.CreateConsumersConfigurer(builder.Services, config));
+            catalog =>
+            {
+                catalog.Map<OrderCreatedEvent>(nameof(OrderCreatedEvent), "OrderCreated");
+                catalog.Map<OrderUpdatedEvent>(nameof(OrderUpdatedEvent), "OrderUpdated");
+                catalog.Map<OrderCancelledEvent>(nameof(OrderCancelledEvent), "OrderCancelled");
+            },
+            PostgreSqlSubscriberBrighterSetup.CreateConsumersConfigurer(builder.Services, config),
+            typeof(OrderCreatedEvent).Assembly);
 
         builder.Services.AddHostedService<Paramore.Brighter.ServiceActivator.Extensions.Hosting.ServiceActivatorHostedService>();
 

@@ -1,5 +1,6 @@
 using BrighterEventing.Messaging.Configuration;
 using BrighterEventing.Subscriber.Net6.Configuration;
+using BrighterEventing.Sample.DomainEvents;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -23,7 +24,15 @@ var host = Host.CreateDefaultBuilder(args)
     .ConfigureServices((context, services) =>
     {
         services.Configure<TestingOptions>(context.Configuration.GetSection(TestingOptions.SectionName));
-        services.AddBrighterEventingSubscriberMessaging(context.Configuration);
+        services.AddBrighterEventingSubscriberMessaging(
+            context.Configuration,
+            catalog =>
+            {
+                catalog.Map<OrderCreatedEvent>(nameof(OrderCreatedEvent), "OrderCreated");
+                catalog.Map<OrderUpdatedEvent>(nameof(OrderUpdatedEvent), "OrderUpdated");
+                catalog.Map<OrderCancelledEvent>(nameof(OrderCancelledEvent), "OrderCancelled");
+            },
+            typeof(OrderCreatedEvent).Assembly);
         services.AddHostedService<ServiceActivatorHostedService>();
         services.Configure<HostOptions>(opts => opts.ShutdownTimeout = TimeSpan.FromSeconds(30));
     })

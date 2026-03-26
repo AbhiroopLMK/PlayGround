@@ -1,4 +1,3 @@
-using BrighterEventing.Messaging.Events;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Paramore.Brighter;
@@ -16,8 +15,6 @@ namespace BrighterEventing.Messaging.Configuration;
 
 public static class BrighterSubscriberServiceCollectionExtensions
 {
-    private const string ConsumerRetryPipelineName = "ConsumerRetryPipeline";
-
     /// <summary>
     /// Binds <see cref="BrighterSubscriberOptions"/> from configuration (including legacy fallback keys).
     /// </summary>
@@ -31,25 +28,54 @@ public static class BrighterSubscriberServiceCollectionExtensions
         return options;
     }
 
-    /// <summary>Registers Brighter consumers for BrighterEventing (RabbitMQ or Azure Service Bus).</summary>
-    /// <param name="autoFromAssemblies">
-    /// Optional extra assemblies for Brighter <c>AutoFromAssemblies</c>. When omitted or empty,
-    /// <see cref="BrighterEventingAssemblyRegistration.ResolveAutoFromAssemblies"/> uses the entry assembly and the shared messaging assembly.
-    /// </param>
+    /// <summary>Registers Brighter consumers. Registers <see cref="IEventTypeRegistry"/> from <paramref name="configureEventTypes"/>.</summary>
     public static IServiceCollection AddBrighterEventingSubscriberMessaging(
         this IServiceCollection services,
         IConfiguration configuration,
+        Action<EventTypeCatalogBuilder> configureEventTypes,
         params Assembly[] autoFromAssemblies) =>
-        services.AddBrighterEventingSubscriberMessaging(configuration, configureConsumersAfterTransport: null, autoFromAssemblies);
+        services.AddBrighterEventingSubscriberMessaging(
+            configuration,
+            configureEventTypes,
+            configureConsumersAfterTransport: null,
+            autoFromAssemblies);
 
     /// <summary>Registers Brighter consumers; optional callback runs after transport wiring inside <c>AddConsumers</c> (e.g. PostgreSQL inbox).</summary>
-    /// <param name="autoFromAssemblies">
-    /// Optional extra assemblies for Brighter <c>AutoFromAssemblies</c>. When omitted or empty,
-    /// <see cref="BrighterEventingAssemblyRegistration.ResolveAutoFromAssemblies"/> uses the entry assembly and the shared messaging assembly.
-    /// </param>
     public static IServiceCollection AddBrighterEventingSubscriberMessaging(
         this IServiceCollection services,
         IConfiguration configuration,
+        Action<EventTypeCatalogBuilder> configureEventTypes,
+        Action<ConsumersOptions, BrighterSubscriberOptions>? configureConsumersAfterTransport,
+        params Assembly[] autoFromAssemblies)
+    {
+        var builder = new EventTypeCatalogBuilder();
+        configureEventTypes(builder);
+        var registry = builder.Build();
+        services.AddSingleton<IEventTypeRegistry>(registry);
+        return services.AddBrighterEventingSubscriberMessaging(
+            configuration,
+            registry,
+            configureConsumersAfterTransport,
+            autoFromAssemblies);
+    }
+
+    /// <summary>Registers Brighter consumers using an existing <see cref="IEventTypeRegistry"/>.</summary>
+    public static IServiceCollection AddBrighterEventingSubscriberMessaging(
+        this IServiceCollection services,
+        IConfiguration configuration,
+        IEventTypeRegistry eventTypeRegistry,
+        params Assembly[] autoFromAssemblies) =>
+        services.AddBrighterEventingSubscriberMessaging(
+            configuration,
+            eventTypeRegistry,
+            configureConsumersAfterTransport: null,
+            autoFromAssemblies);
+
+    /// <summary>Registers Brighter consumers; optional callback runs after transport wiring inside <c>AddConsumers</c> (e.g. PostgreSQL inbox).</summary>
+    public static IServiceCollection AddBrighterEventingSubscriberMessaging(
+        this IServiceCollection services,
+        IConfiguration configuration,
+        IEventTypeRegistry eventTypeRegistry,
         Action<ConsumersOptions, BrighterSubscriberOptions>? configureConsumersAfterTransport,
         params Assembly[] autoFromAssemblies)
     {
@@ -67,27 +93,10 @@ public static class BrighterSubscriberServiceCollectionExtensions
                 MaxRetryAttempts = Math.Max(0, options.Retry.OutboxProducerMaxRetryAttempts),
                 Delay = TimeSpan.Zero,
             }));
-        resiliencePipelineRegistry.TryAddBuilder(ConsumerRetryPipelineName, (builder, _) =>
-            builder.AddRetry(new RetryStrategyOptions
-            {
-                MaxRetryAttempts = Math.Max(0, options.Consumer.MaxRetryCount),
-                Delay = TimeSpan.FromMilliseconds(Math.Max(0, options.Consumer.RequeueDelayMs)),
-                BackoffType = DelayBackoffType.Exponential,
-            }));
-        resiliencePipelineRegistry.TryAddBuilder<LgsEnvelopeBrighterEvent>(ConsumerRetryPipelineName, (builder, _) =>
-            builder.AddRetry(new RetryStrategyOptions<LgsEnvelopeBrighterEvent>
-            {
-                MaxRetryAttempts = Math.Max(0, options.Consumer.MaxRetryCount),
-                Delay = TimeSpan.FromMilliseconds(Math.Max(0, options.Consumer.RequeueDelayMs)),
-                BackoffType = DelayBackoffType.Exponential,
-            }));
-        resiliencePipelineRegistry.TryAddBuilder<RabbitInternalEnvelopeBrighterEvent>(ConsumerRetryPipelineName, (builder, _) =>
-            builder.AddRetry(new RetryStrategyOptions<RabbitInternalEnvelopeBrighterEvent>
-            {
-                MaxRetryAttempts = Math.Max(0, options.Consumer.MaxRetryCount),
-                Delay = TimeSpan.FromMilliseconds(Math.Max(0, options.Consumer.RequeueDelayMs)),
-                BackoffType = DelayBackoffType.Exponential,
-            }));
+        BrighterSubscriberResilienceRegistration.RegisterConsumerRetryPipelinesForEventTypes(
+            resiliencePipelineRegistry,
+            options,
+            eventTypeRegistry);
 
         services.AddBrighter(brighterOptions =>
         {
@@ -101,11 +110,11 @@ public static class BrighterSubscriberServiceCollectionExtensions
         {
             if (options.Transport == BrokerType.AzureServiceBus)
             {
-                ConfigureAzureServiceBusConsumers(consumers, options, timeout, requeueDelay);
+                ConfigureAzureServiceBusConsumers(consumers, options, eventTypeRegistry, timeout, requeueDelay);
             }
             else
             {
-                ConfigureRabbitMqConsumers(consumers, options, timeout, requeueDelay);
+                ConfigureRabbitMqConsumers(consumers, options, eventTypeRegistry, timeout, requeueDelay);
             }
 
             configureConsumersAfterTransport?.Invoke(consumers, options);
@@ -117,6 +126,7 @@ public static class BrighterSubscriberServiceCollectionExtensions
     private static void ConfigureAzureServiceBusConsumers(
         ConsumersOptions consumers,
         BrighterSubscriberOptions options,
+        IEventTypeRegistry eventTypeRegistry,
         TimeSpan timeout,
         TimeSpan? requeueDelay)
     {
@@ -135,35 +145,19 @@ public static class BrighterSubscriberServiceCollectionExtensions
                 : TimeSpan.FromMinutes(1)
         };
 
-        consumers.Subscriptions = new Subscription[]
-        {
-            new AzureServiceBusSubscription<LgsEnvelopeBrighterEvent>(
-                new SubscriptionName(options.AzureServiceBus.SubscriptionName),
-                new ChannelName(options.AzureServiceBus.SubscriptionName),
-                new RoutingKey(MessagingRoutingKeys.LgsWrapped),
-                timeOut: timeout,
-                makeChannels: OnMissingChannel.Create,
-                requeueCount: options.Consumer.MaxRetryCount,
-                requeueDelay: requeueDelay,
-                messagePumpType: MessagePumpType.Proactor,
-                subscriptionConfiguration: subscriptionConfiguration),
-            new AzureServiceBusSubscription<RabbitInternalEnvelopeBrighterEvent>(
-                new SubscriptionName(options.AzureServiceBus.SubscriptionName),
-                new ChannelName(options.AzureServiceBus.SubscriptionName),
-                new RoutingKey(MessagingRoutingKeys.RabbitInternalWrapped),
-                timeOut: timeout,
-                makeChannels: OnMissingChannel.Create,
-                requeueCount: options.Consumer.MaxRetryCount,
-                requeueDelay: requeueDelay,
-                messagePumpType: MessagePumpType.Proactor,
-                subscriptionConfiguration: subscriptionConfiguration)
-        };
+        consumers.Subscriptions = BrighterMessagingBrokerRegistration.BuildAzureServiceBusSubscriptions(
+            options,
+            eventTypeRegistry,
+            timeout,
+            requeueDelay,
+            subscriptionConfiguration);
         consumers.DefaultChannelFactory = new AzureServiceBusChannelFactory(new AzureServiceBusConsumerFactory(clientProvider));
     }
 
     private static void ConfigureRabbitMqConsumers(
         dynamic consumers,
         BrighterSubscriberOptions options,
+        IEventTypeRegistry eventTypeRegistry,
         TimeSpan timeout,
         TimeSpan? requeueDelay)
     {
@@ -181,27 +175,11 @@ public static class BrighterSubscriberServiceCollectionExtensions
         if (!string.IsNullOrWhiteSpace(options.RabbitMQ.ClientProvidedName))
             connection.Name = options.RabbitMQ.ClientProvidedName;
 
-        consumers.Subscriptions = new Subscription[]
-        {
-            new RmqSubscription<LgsEnvelopeBrighterEvent>(
-                new SubscriptionName(options.RabbitMQ.SubscriptionName),
-                new ChannelName(options.RabbitMQ.LgsChannelName),
-                new RoutingKey(MessagingRoutingKeys.LgsWrapped),
-                timeOut: timeout,
-                makeChannels: OnMissingChannel.Create,
-                requeueCount: options.Consumer.MaxRetryCount,
-                requeueDelay: requeueDelay,
-                messagePumpType: MessagePumpType.Proactor),
-            new RmqSubscription<RabbitInternalEnvelopeBrighterEvent>(
-                new SubscriptionName(options.RabbitMQ.SubscriptionName),
-                new ChannelName(options.RabbitMQ.RabbitInternalChannelName),
-                new RoutingKey(MessagingRoutingKeys.RabbitInternalWrapped),
-                timeOut: timeout,
-                makeChannels: OnMissingChannel.Create,
-                requeueCount: options.Consumer.MaxRetryCount,
-                requeueDelay: requeueDelay,
-                messagePumpType: MessagePumpType.Proactor)
-        };
+        consumers.Subscriptions = BrighterMessagingBrokerRegistration.BuildRmqSubscriptions(
+            options,
+            eventTypeRegistry,
+            timeout,
+            requeueDelay);
         consumers.DefaultChannelFactory = new ChannelFactory(new RmqMessageConsumerFactory(connection));
     }
 

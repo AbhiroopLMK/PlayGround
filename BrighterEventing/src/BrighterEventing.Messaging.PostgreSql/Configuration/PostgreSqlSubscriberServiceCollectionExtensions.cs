@@ -15,9 +15,20 @@ public static class PostgreSqlSubscriberServiceCollectionExtensions
     public static IServiceCollection AddBrighterEventingSubscriberMessagingWithPostgreSqlInbox(
         this IServiceCollection services,
         IConfiguration configuration,
+        Action<EventTypeCatalogBuilder> configureEventTypes,
         params Assembly[] autoFromAssemblies)
     {
         var configure = PostgreSqlSubscriberBrighterSetup.CreateConsumersConfigurer(services, configuration);
-        return services.AddBrighterEventingSubscriberMessaging(configuration, configure, autoFromAssemblies);
+        return services.AddBrighterEventingSubscriberMessaging(configuration, configureEventTypes, configure, autoFromAssemblies);
+    }
+
+    public static IServiceCollection AddBrighterEventingSubscriberMessagingWithPostgreSqlInbox(
+        this IServiceCollection services,
+        IConfiguration configuration,
+        IEventTypeRegistry eventTypeRegistry,
+        params Assembly[] autoFromAssemblies)
+    {
+        var configure = PostgreSqlSubscriberBrighterSetup.CreateConsumersConfigurer(services, configuration);
+        return services.AddBrighterEventingSubscriberMessaging(configuration, eventTypeRegistry, configure, autoFromAssemblies);
     }
 }

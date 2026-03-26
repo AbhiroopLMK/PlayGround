@@ -26,6 +26,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\BrighterEventing.Messaging.PostgreSql\BrighterEventing.Messaging.PostgreSql.csproj" />
+    <ProjectReference Include="..\BrighterEventing.Sample.DomainEvents\BrighterEventing.Sample.DomainEvents.csproj" />
   </ItemGroup>
 
   <ItemGroup>

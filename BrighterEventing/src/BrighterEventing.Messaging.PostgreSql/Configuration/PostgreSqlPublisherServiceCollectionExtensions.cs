@@ -15,9 +15,20 @@ public static class PostgreSqlPublisherServiceCollectionExtensions
     public static IServiceCollection AddBrighterEventingPublisherMessagingWithPostgreSqlOutbox(
         this IServiceCollection services,
         IConfiguration configuration,
+        Action<EventTypeCatalogBuilder> configureEventTypes,
         params Assembly[] autoFromAssemblies)
     {
         var configure = PostgreSqlPublisherBrighterSetup.CreateProducersConfigurer(services, configuration);
-        return services.AddBrighterEventingPublisherMessaging(configuration, configure, autoFromAssemblies);
+        return services.AddBrighterEventingPublisherMessaging(configuration, configureEventTypes, configure, autoFromAssemblies);
+    }
+
+    public static IServiceCollection AddBrighterEventingPublisherMessagingWithPostgreSqlOutbox(
+        this IServiceCollection services,
+        IConfiguration configuration,
+        IEventTypeRegistry eventTypeRegistry,
+        params Assembly[] autoFromAssemblies)
+    {
+        var configure = PostgreSqlPublisherBrighterSetup.CreateProducersConfigurer(services, configuration);
+        return services.AddBrighterEventingPublisherMessaging(configuration, eventTypeRegistry, configure, autoFromAssemblies);
     }
 }

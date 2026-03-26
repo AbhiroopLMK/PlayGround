@@ -1,6 +1,5 @@
 using BrighterEventing.Messaging.Configuration;
 using BrighterEventing.Messaging.CosmosDb.Durability;
-using BrighterEventing.Messaging.Events;
 using Microsoft.Azure.Cosmos;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -19,11 +18,23 @@ namespace BrighterEventing.Messaging.CosmosDb.Configuration;
 
 public static class CosmosDbServiceCollectionExtensions
 {
-    private const string ConsumerRetryPipelineName = "ConsumerRetryPipeline";
+    public static IServiceCollection AddBrighterEventingPublisherMessaging(
+        this IServiceCollection services,
+        IConfiguration configuration,
+        Action<EventTypeCatalogBuilder> configureEventTypes,
+        params Assembly[] autoFromAssemblies)
+    {
+        var builder = new EventTypeCatalogBuilder();
+        configureEventTypes(builder);
+        var registry = builder.Build();
+        services.AddSingleton<IEventTypeRegistry>(registry);
+        return services.AddBrighterEventingPublisherMessaging(configuration, registry, autoFromAssemblies);
+    }
 
     public static IServiceCollection AddBrighterEventingPublisherMessaging(
         this IServiceCollection services,
         IConfiguration configuration,
+        IEventTypeRegistry eventTypeRegistry,
         params Assembly[] autoFromAssemblies)
     {
         var options = new BrighterPublisherOptions();
@@ -56,11 +67,11 @@ public static class CosmosDbServiceCollectionExtensions
 
             if (options.Transport == BrokerType.AzureServiceBus)
             {
-                ConfigureAzureServiceBus(producers, options);
+                ConfigureAzureServiceBus(producers, options, eventTypeRegistry);
             }
             else
             {
-                ConfigureRabbitMq(producers, options);
+                ConfigureRabbitMq(producers, options, eventTypeRegistry);
             }
         })
         .AutoFromAssemblies(BrighterEventingAssemblyRegistration.ResolveAutoFromAssemblies(autoFromAssemblies));
@@ -71,6 +82,20 @@ public static class CosmosDbServiceCollectionExtensions
     public static IServiceCollection AddBrighterEventingSubscriberMessaging(
         this IServiceCollection services,
         IConfiguration configuration,
+        Action<EventTypeCatalogBuilder> configureEventTypes,
+        params Assembly[] autoFromAssemblies)
+    {
+        var builder = new EventTypeCatalogBuilder();
+        configureEventTypes(builder);
+        var registry = builder.Build();
+        services.AddSingleton<IEventTypeRegistry>(registry);
+        return services.AddBrighterEventingSubscriberMessaging(configuration, registry, autoFromAssemblies);
+    }
+
+    public static IServiceCollection AddBrighterEventingSubscriberMessaging(
+        this IServiceCollection services,
+        IConfiguration configuration,
+        IEventTypeRegistry eventTypeRegistry,
         params Assembly[] autoFromAssemblies)
     {
         var options = new BrighterSubscriberOptions();
@@ -95,13 +120,10 @@ public static class CosmosDbServiceCollectionExtensions
                 MaxRetryAttempts = Math.Max(0, options.Retry.OutboxProducerMaxRetryAttempts),
                 Delay = TimeSpan.Zero,
             }));
-        resiliencePipelineRegistry.TryAddBuilder(ConsumerRetryPipelineName, (builder, _) =>
-            builder.AddRetry(new RetryStrategyOptions
-            {
-                MaxRetryAttempts = Math.Max(0, options.Consumer.MaxRetryCount),
-                Delay = TimeSpan.FromMilliseconds(Math.Max(0, options.Consumer.RequeueDelayMs)),
-                BackoffType = DelayBackoffType.Exponential,
-            }));
+        BrighterSubscriberResilienceRegistration.RegisterConsumerRetryPipelinesForEventTypes(
+            resiliencePipelineRegistry,
+            options,
+            eventTypeRegistry);
 
         services.AddBrighter(brighterOptions =>
         {
@@ -115,11 +137,11 @@ public static class CosmosDbServiceCollectionExtensions
         {
             if (options.Transport == BrokerType.AzureServiceBus)
             {
-                ConfigureAzureServiceBusConsumers(consumers, options, timeout, requeueDelay);
+                ConfigureAzureServiceBusConsumers(consumers, options, eventTypeRegistry, timeout, requeueDelay);
             }
             else
             {
-                ConfigureRabbitMqConsumers(consumers, options, timeout, requeueDelay);
+                ConfigureRabbitMqConsumers(consumers, options, eventTypeRegistry, timeout, requeueDelay);
             }
 
             if (inbox != null) consumers.InboxConfiguration = new InboxConfiguration(inbox);
@@ -150,7 +172,7 @@ public static class CosmosDbServiceCollectionExtensions
         return new CosmosBrighterInbox(container);
     }
 
-    private static void ConfigureRabbitMq(dynamic producers, BrighterPublisherOptions options)
+    private static void ConfigureRabbitMq(dynamic producers, BrighterPublisherOptions options, IEventTypeRegistry eventTypeRegistry)
     {
         var amqpUri = RabbitMqAmqpUri.Resolve(
             options.RabbitMQ.AmqpUri,
@@ -168,26 +190,25 @@ public static class CosmosDbServiceCollectionExtensions
             connection.Name = options.RabbitMQ.ClientProvidedName;
 
         producers.ProducerRegistry = new RmqProducerRegistryFactory(connection,
-        [
-            new RmqPublication<LgsEnvelopeBrighterEvent> { MakeChannels = OnMissingChannel.Create, Topic = new RoutingKey(MessagingRoutingKeys.LgsWrapped) },
-            new RmqPublication<RabbitInternalEnvelopeBrighterEvent> { MakeChannels = OnMissingChannel.Create, Topic = new RoutingKey(MessagingRoutingKeys.RabbitInternalWrapped) }
-        ]).Create();
+            BrighterMessagingBrokerRegistration.BuildRmqPublications(options, eventTypeRegistry)).Create();
     }
 
-    private static void ConfigureAzureServiceBus(dynamic producers, BrighterPublisherOptions options)
+    private static void ConfigureAzureServiceBus(dynamic producers, BrighterPublisherOptions options, IEventTypeRegistry eventTypeRegistry)
     {
         if (string.IsNullOrWhiteSpace(options.AzureServiceBus.ConnectionString))
             throw new InvalidOperationException("Azure Service Bus connection string is required when Transport=AzureServiceBus.");
 
         var connection = new ServiceBusConnectionStringClientProvider(options.AzureServiceBus.ConnectionString!);
         producers.ProducerRegistry = new BrighterEventing.Messaging.AzureServiceBus.SessionAwareAzureServiceBusProducerRegistryFactory(connection,
-        [
-            new AzureServiceBusPublication<LgsEnvelopeBrighterEvent> { MakeChannels = OnMissingChannel.Create, Topic = new RoutingKey(MessagingRoutingKeys.LgsWrapped) },
-            new AzureServiceBusPublication<RabbitInternalEnvelopeBrighterEvent> { MakeChannels = OnMissingChannel.Create, Topic = new RoutingKey(MessagingRoutingKeys.RabbitInternalWrapped) }
-        ]).Create();
+            BrighterMessagingBrokerRegistration.BuildAzureServiceBusPublications(options, eventTypeRegistry)).Create();
     }
 
-    private static void ConfigureAzureServiceBusConsumers(ConsumersOptions consumers, BrighterSubscriberOptions options, TimeSpan timeout, TimeSpan? requeueDelay)
+    private static void ConfigureAzureServiceBusConsumers(
+        ConsumersOptions consumers,
+        BrighterSubscriberOptions options,
+        IEventTypeRegistry eventTypeRegistry,
+        TimeSpan timeout,
+        TimeSpan? requeueDelay)
     {
         if (string.IsNullOrWhiteSpace(options.AzureServiceBus.ConnectionString))
             throw new InvalidOperationException("Azure Service Bus connection string is required when Transport=AzureServiceBus.");
@@ -201,15 +222,21 @@ public static class CosmosDbServiceCollectionExtensions
             RequireSession = true,
             DefaultMessageTimeToLive = options.AzureServiceBus.DefaultMessageTimeToLiveDays > 0 ? TimeSpan.FromDays(options.AzureServiceBus.DefaultMessageTimeToLiveDays) : TimeSpan.FromMinutes(1)
         };
-        consumers.Subscriptions = new Subscription[]
-        {
-            new AzureServiceBusSubscription<LgsEnvelopeBrighterEvent>(new SubscriptionName(options.AzureServiceBus.SubscriptionName), new ChannelName(options.AzureServiceBus.SubscriptionName), new RoutingKey(MessagingRoutingKeys.LgsWrapped), timeOut: timeout, makeChannels: OnMissingChannel.Create, requeueCount: options.Consumer.MaxRetryCount, requeueDelay: requeueDelay, messagePumpType: MessagePumpType.Proactor, subscriptionConfiguration: subscriptionConfiguration),
-            new AzureServiceBusSubscription<RabbitInternalEnvelopeBrighterEvent>(new SubscriptionName(options.AzureServiceBus.SubscriptionName), new ChannelName(options.AzureServiceBus.SubscriptionName), new RoutingKey(MessagingRoutingKeys.RabbitInternalWrapped), timeOut: timeout, makeChannels: OnMissingChannel.Create, requeueCount: options.Consumer.MaxRetryCount, requeueDelay: requeueDelay, messagePumpType: MessagePumpType.Proactor, subscriptionConfiguration: subscriptionConfiguration)
-        };
+        consumers.Subscriptions = BrighterMessagingBrokerRegistration.BuildAzureServiceBusSubscriptions(
+            options,
+            eventTypeRegistry,
+            timeout,
+            requeueDelay,
+            subscriptionConfiguration);
         consumers.DefaultChannelFactory = new AzureServiceBusChannelFactory(new AzureServiceBusConsumerFactory(clientProvider));
     }
 
-    private static void ConfigureRabbitMqConsumers(ConsumersOptions consumers, BrighterSubscriberOptions options, TimeSpan timeout, TimeSpan? requeueDelay)
+    private static void ConfigureRabbitMqConsumers(
+        ConsumersOptions consumers,
+        BrighterSubscriberOptions options,
+        IEventTypeRegistry eventTypeRegistry,
+        TimeSpan timeout,
+        TimeSpan? requeueDelay)
     {
         var amqpUri = RabbitMqAmqpUri.Resolve(
             options.RabbitMQ.AmqpUri,
@@ -224,11 +251,11 @@ public static class CosmosDbServiceCollectionExtensions
         };
         if (!string.IsNullOrWhiteSpace(options.RabbitMQ.ClientProvidedName))
             connection.Name = options.RabbitMQ.ClientProvidedName;
-        consumers.Subscriptions = new Subscription[]
-        {
-            new RmqSubscription<LgsEnvelopeBrighterEvent>(new SubscriptionName(options.RabbitMQ.SubscriptionName), new ChannelName(options.RabbitMQ.LgsChannelName), new RoutingKey(MessagingRoutingKeys.LgsWrapped), timeOut: timeout, makeChannels: OnMissingChannel.Create, requeueCount: options.Consumer.MaxRetryCount, requeueDelay: requeueDelay, messagePumpType: MessagePumpType.Proactor),
-            new RmqSubscription<RabbitInternalEnvelopeBrighterEvent>(new SubscriptionName(options.RabbitMQ.SubscriptionName), new ChannelName(options.RabbitMQ.RabbitInternalChannelName), new RoutingKey(MessagingRoutingKeys.RabbitInternalWrapped), timeOut: timeout, makeChannels: OnMissingChannel.Create, requeueCount: options.Consumer.MaxRetryCount, requeueDelay: requeueDelay, messagePumpType: MessagePumpType.Proactor)
-        };
+        consumers.Subscriptions = BrighterMessagingBrokerRegistration.BuildRmqSubscriptions(
+            options,
+            eventTypeRegistry,
+            timeout,
+            requeueDelay);
         consumers.DefaultChannelFactory = new ChannelFactory(new RmqMessageConsumerFactory(connection));
     }
 

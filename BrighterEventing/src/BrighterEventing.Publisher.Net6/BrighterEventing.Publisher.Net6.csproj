@@ -16,9 +16,16 @@
 
   <ItemGroup>
     <ProjectReference Include="..\BrighterEventing.Messaging\BrighterEventing.Messaging.csproj" />
+    <ProjectReference Include="..\BrighterEventing.Sample.DomainEvents\BrighterEventing.Sample.DomainEvents.csproj" />
   </ItemGroup>
 
   <ItemGroup>
+    <None Update="appsettings.Development.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="appsettings.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
     <None Update="secrets.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
