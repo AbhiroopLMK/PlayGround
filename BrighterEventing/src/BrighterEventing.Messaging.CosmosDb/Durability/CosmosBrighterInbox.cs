@@ -23,7 +23,7 @@ internal sealed class CosmosBrighterInbox : IAmAnInboxSync, IAmAnInboxAsync
         var commandId = ResolveCommandId(command);
         var doc = new InboxDocument
         {
-            id = ComposeId(contextKey, commandId),
+            id = commandId,
             ContextKey = contextKey,
             CommandId = commandId,
             CommandClrType = typeof(T).AssemblyQualifiedName ?? typeof(T).FullName ?? typeof(T).Name,
@@ -38,11 +38,10 @@ internal sealed class CosmosBrighterInbox : IAmAnInboxSync, IAmAnInboxAsync
 
     public async Task<T> GetAsync<T>(string id, string contextKey, RequestContext? requestContext, int timeoutInMilliseconds = -1, CancellationToken cancellationToken = default) where T : class, IRequest
     {
-        var key = ComposeId(contextKey, id);
-        var response = await _container.ReadItemAsync<InboxDocument>(key, new CosmosPartitionKey(key), cancellationToken: cancellationToken)
+        var response = await _container.ReadItemAsync<InboxDocument>(id, new CosmosPartitionKey(id), cancellationToken: cancellationToken)
             .ConfigureAwait(ContinueOnCapturedContext);
         return JsonConvert.DeserializeObject<T>(response.Resource.CommandJson)
-               ?? throw new InvalidOperationException($"Inbox command '{key}' could not be deserialized.");
+               ?? throw new InvalidOperationException($"Inbox command '{id}' could not be deserialized.");
     }
 
     public bool Exists<T>(string id, string contextKey, RequestContext? requestContext, int timeoutInMilliseconds = -1) where T : class, IRequest
@@ -50,10 +49,9 @@ internal sealed class CosmosBrighterInbox : IAmAnInboxSync, IAmAnInboxAsync
 
     public async Task<bool> ExistsAsync<T>(string id, string contextKey, RequestContext? requestContext, int timeoutInMilliseconds = -1, CancellationToken cancellationToken = default) where T : class, IRequest
     {
-        var key = ComposeId(contextKey, id);
         try
         {
-            await _container.ReadItemAsync<InboxDocument>(key, new CosmosPartitionKey(key), cancellationToken: cancellationToken)
+            await _container.ReadItemAsync<InboxDocument>(id, new CosmosPartitionKey(id), cancellationToken: cancellationToken)
                 .ConfigureAwait(ContinueOnCapturedContext);
             return true;
         }
@@ -62,8 +60,6 @@ internal sealed class CosmosBrighterInbox : IAmAnInboxSync, IAmAnInboxAsync
             return false;
         }
     }
-
-    private static string ComposeId(string contextKey, string id) => $"{contextKey}:{id}";
 
     private static string ResolveCommandId(IRequest command)
     {
