@@ -6,7 +6,7 @@ Sample publisher and subscriber applications demonstrating **Paramore.Brighter**
 
 | HLD driver / requirement | Where it's shown |
 |--------------------------|------------------|
-| **1. Separation of concerns** | Wire shapes (`LgsEventWire`, `IInternalEventPayload`) and Brighter events in `BrighterEventing.Messaging`; publisher handlers separate from transport. |
+| **1. Separation of concerns** | **`WireEnvelopeBuilder`** + domain events / legacy wire shapes (`LgsEventWire`, `IInternalEventPayload`) in **`BrighterEventing.Messaging`**; publisher handlers separate from transport. |
 | **2. Encapsulation of cross-cutting concerns** | Handler pipeline (logging, retry) and optional inbox/outbox middleware. |
 | **3. Reliability via Outbox and Inbox** | **Publisher**: Postgres outbox; **Subscriber**: Postgres inbox for de-duplication. |
 | **4. Durable execution** | Outbox: messages persisted in Postgres before being sent. |
@@ -14,7 +14,64 @@ Sample publisher and subscriber applications demonstrating **Paramore.Brighter**
 
 ## Message flow
 
-### End-to-end
+### BrighterEventing: end-to-end flows (registration → publish → map → subscribe)
+
+The **primary** sample path uses **domain events** (`BrighterEventing.Sample.DomainEvents`: `OrderCreatedEvent`, `OrderUpdatedEvent`, `OrderCancelledEvent`), **`BrighterMessaging:Publisher` / `BrighterMessaging:Subscriber`** configuration, and **`WireEnvelopeBuilder`** for transport-specific JSON. The steps below match **`BrighterEventing.Publisher` / `BrighterEventing.Subscriber`** (and **`.Net6`** hosts).
+
+#### 1. Registration (composition root)
+
+| Step | Publisher | Subscriber |
+|------|-------------|------------|
+| Config | `BrighterMessaging:Publisher` — `Transport`, `Publications[]` (`EventType`, `RoutingKey`, optional `Topic`, optional `ServiceBusEventType`), ASB/Rabbit connection settings, optional Postgres/Cosmos outbox | `BrighterMessaging:Subscriber` — `Transport`, `Subscriptions[]` (`EventType`, `RoutingKey`, `Topic`, `SubscriptionName`, optional `AzureServiceBusFilterRules`), ASB/Rabbit settings, optional inbox |
+| API | **`AddBrighterEventingPublisherMessaging`** (or Cosmos/PostgreSQL variants): binds options, registers **`IEventTypeRegistry`** from **`EventTypeCatalogBuilder`**, wires Brighter **`AddProducers`** (RMQ exchange or ASB **session-aware** producer registry) | **`AddBrighterEventingSubscriberMessaging`**: **`AddConsumers`** (RMQ or ASB channel factory), Polly retry pipelines per event type |
+| Event catalog | **`catalog => catalog.AddSampleOrderEvents()`** maps logical names → CLR types + CloudEvents **`type`** | Same registry resolves handler **`Event`** types |
+
+Azure Service Bus subscribers also register **`AzureServiceBusCorrelationRulesHostedService`** (see subscribe step).
+
+#### 2. Map (domain event → Brighter `Message`)
+
+- Handlers call **`CommandProcessor.PostAsync`** / **`DepositPostAsync`** with a domain **`Event`** (e.g. `OrderCreatedEvent`).
+- **`IAmAMessageMapperAsync<TEvent>`** (e.g. `OrderCreatedEventMessageMapper`) calls **`WireEnvelopeBuilder.BuildForConfiguredTransport`**, passing Brighter’s **`Publication`** (topic + subject from registry) and **`IConfiguration`**.
+- **RabbitMQ**: internal JSON envelope + exchange **routing key** from publication.
+- **Azure Service Bus**: **LGS-shaped** JSON body; CloudEvents **subject** = publication subject / routing key.
+- Optional **`ServiceBusEventType`** on the matching **`PublicationBinding`** row is resolved via **`BrighterPublisherPublicationMetadata.TryGetServiceBusEventType`** and copied to **`MessageHeader.Bag["serviceBusEventType"]`** so subscriptions can filter on that **custom property**.
+
+#### 3. Publish (outbox → broker)
+
+- With outbox: same transaction as business data → **`DepositPostAsync`** persists the **`Message`**; background **`ClearOutboxAsync`** dispatches to the broker.
+- **Azure Service Bus**: producers are wrapped so **`BrighterEventingAzureServiceBusProducerSend`** sends with **`BrighterEventingServiceBusMessageConverter`**, which sets broker **`ServiceBusMessage.Subject`** from **`MessageHeader.Subject`** (Brighter’s default converter only sets **`cloudEvents:subject`** as an application property). This aligns with **correlation filters** on **Subject** and with **`BrokerSubject`** in config.
+
+#### 4. Subscribe (consumer → handler)
+
+- Brighter builds **topic + subscription entity** from **`Subscriptions`** (see **`BrighterMessagingBrokerRegistration`**). **`AzureServiceBusSubscriptionConfiguration.SqlFilter`** is left **empty** so Paramore does **not** create a **`sqlFilter`** SQL rule (its API only supports SQL filters).
+- **`AzureServiceBusCorrelationRulesHostedService`** runs **after** host start (background work, **not** blocking **`StartAsync`**). It waits for the subscription to exist, then applies **Azure Service Bus** **`CorrelationRuleFilter`** rules from **`AzureServiceBusFilterRules`**: multiple rules are **OR**; conditions inside one rule are **AND**. It removes **`sqlFilter`** and **`$Default`** when replaced. If **`AzureServiceBusFilterRules`** is omitted, a **legacy** correlation rule matches the **`cloudEvents:subject`** application property to **`RoutingKey`**.
+- **Service Activator** receives messages; optional **inbox** deduplicates; **event handlers** run.
+
+```mermaid
+flowchart LR
+  subgraph reg [Registration]
+    A[appsettings BrighterMessaging]
+    B[IEventTypeRegistry + producers/consumers]
+  end
+  subgraph pub [Publish path]
+    M[IAmAMessageMapperAsync]
+    W[WireEnvelopeBuilder]
+    O[Outbox optional]
+    P[ASB / Rabbit producer]
+  end
+  subgraph sub [Subscribe path]
+    C[Brighter ASB subscription SqlFilter empty]
+    R[AzureServiceBusCorrelationRulesHostedService]
+    H[Handlers]
+  end
+  A --> B
+  M --> W --> O --> P
+  B --> C --> R --> H
+```
+
+#### Legacy: wrapped envelope (Lgs / Rabbit internal)
+
+An earlier sample used **`PublishWrappedEnvelopeCommand`**, **`LgsEnvelopeBrighterEvent`**, and dedicated handlers. The same **outbox → broker → inbox** idea applies: outbox rows are cleared when the publisher successfully sends; inbox rows appear after the subscriber processes a message.
 
 ```
 [Publisher]                          [RabbitMQ]                    [Subscriber]
@@ -55,13 +112,15 @@ Sample publisher and subscriber applications demonstrating **Paramore.Brighter**
 
 ## Solution layout
 
-- **BrighterEventing.Messaging** – NuGet-style library (`net6.0` + `net8.0`): custom **`IAmAMessageMapperAsync`** implementations (`LgsEnvelopeBrighterEventMessageMapper`, `RabbitInternalEnvelopeBrighterEventMessageMapper`) turn wire (`LgsWire` / `RabbitWire`) into the published JSON body (`LgsPublishedMessage` / `RabbitPublishedMessage` with `common` metadata). `DepositPostAsync` uses the **async** mapper pipeline only — sync `IAmAMessageMapper<T>` is not invoked for outbox deposit. Brighter events `LgsEnvelopeBrighterEvent` and `RabbitInternalEnvelopeBrighterEvent`, routing key constants. No HTTP Event Service — payloads are built in the host and passed through Brighter to the broker.
-- **BrighterEventing.Publisher** – `PublishWrappedEnvelopeCommand` + handler: same DB transaction writes **`DemoOrders`** + outbox deposit; transport from config selects **Azure Lgs-shaped** vs **Rabbit internal-shaped** input.
-- **BrighterEventing.Subscriber** – Consumes wrapped events; Postgres inbox; retry + inbox idempotency on handlers.
+- **BrighterEventing.Messaging** – NuGet-style library (`net6.0` + `net8.0`): **`BrighterMessagingBrokerRegistration`** (empty ASB **`SqlFilter`** on subscription create), **`WireEnvelopeBuilder`**, **`BrighterPublisherPublicationMetadata`**, **`BrighterEventingServiceBusMessageConverter`** + **`BrighterEventingAzureServiceBusProducerSend`** (broker **`Subject`** + custom properties), **`AzureServiceBusCorrelationRulesHostedService`** + **`AzureServiceBusCorrelationRuleFilterBuilder`**, optional Postgres/Cosmos outbox and inbox. **`DepositPostAsync`** uses the **async** mapper pipeline only — sync **`IAmAMessageMapper<T>`** is not invoked for outbox deposit.
+- **BrighterEventing.Sample.DomainEvents** – Shared **`OrderCreatedEvent`** / **`OrderUpdatedEvent`** / **`OrderCancelledEvent`** and **`EventTypeCatalogBuilder` / `IEventTypeRegistry`** extensions (**`AddSampleOrderEvents`**).
+- **BrighterEventing.Publisher** / **BrighterEventing.Subscriber** – Primary path: domain-event handlers + **`IAmAMessageMapperAsync`** per event (**`OrderCreatedEventMessageMapper`**, etc.), **`BrighterMessaging:*`** config. Legacy path: **`PublishWrappedEnvelopeCommand`**, **`LgsEnvelopeBrighterEvent`** / **`RabbitInternalEnvelopeBrighterEvent`**, **`LgsEnvelopeBrighterEventMessageMapper`** / **`RabbitInternalEnvelopeBrighterEventMessageMapper`** (wire **`LgsWire` / `RabbitWire`** → **`LgsPublishedMessage` / `RabbitPublishedMessage`** with **`common`** metadata).
+- **BrighterEventing.Publisher.Net6** / **BrighterEventing.Subscriber.Net6** – Same patterns on **.NET 6** hosts (direct **`PostAsync`**; no durable outbox/inbox unless you extend them).
+- **BrighterEventing.Publisher.Net6.Cosmos** / **BrighterEventing.Subscriber.Net6.Cosmos** – **.NET 6** with **Cosmos DB** outbox/inbox via **`BrighterEventing.Messaging.CosmosDb`**; **`DepositPostAsync`** + **`ClearOutboxAsync`** on the publisher. Set **`BrighterMessaging:*:CosmosDb:Endpoint`** and **`Key`** (and Service Bus / Rabbit settings) in **`secrets.json`**.
 
-### Common metadata (`common` property)
+### Common metadata (`common` property) — legacy wrapped envelope
 
-The Implementation Guide’s recommended minimum fields are populated **once**, on the nested `common` object (`CommonEventMetadata`), alongside the unchanged Lgs / Rabbit body fields at the root. The Brighter message mappers map from wire inputs without repeating the same values at two levels. Applications set `LgsWire` / `RabbitWire` on the event; optional `EnvelopeMapOptions` fills correlation and message id for Rabbit-style publishes.
+The Implementation Guide’s recommended minimum fields are populated **once**, on the nested **`common`** object (**`CommonEventMetadata`**), alongside the unchanged Lgs / Rabbit body fields at the root. The Brighter message mappers map from wire inputs without repeating the same values at two levels. Applications set **`LgsWire` / `RabbitWire`** on the event; optional **`EnvelopeMapOptions`** fills correlation and message id for Rabbit-style publishes.
 
 ## Prerequisites
 
@@ -111,10 +170,12 @@ Copy from `secrets.json.template` in each project and fill in your values. For p
 
 ## Configuration
 
-- **Transport**: `"Transport": "RabbitMQ"` (default) or `"AzureServiceBus"`. For Azure Service Bus, set `Transport` to `AzureServiceBus` and add `AzureServiceBus:ConnectionString` in secrets.json (and optionally `AzureServiceBus:TopicName`; the Publisher uses topics `order.created` and `greeting.made`).
-- **Publisher**: `Publisher:SendIntervalSeconds` (default 5).
-- **RabbitMQ**: `RabbitMQ:AmqpUri` (set via secrets.json or env), `RabbitMQ:Exchange`, `RabbitMQ:SubscriptionName` (Subscriber).
-- **Connection strings**: `ConnectionStrings:BrighterOutbox` (Publisher), `ConnectionStrings:BrighterInbox` (Subscriber) — set via `secrets.json` or env; not in appsettings.
+- **Transport**: Under **`BrighterMessaging:Publisher`** / **`BrighterMessaging:Subscriber`**, set **`Transport`** to **`RabbitMQ`** or **`AzureServiceBus`**. For Azure Service Bus, add **`BrighterMessaging:Publisher:AzureServiceBus:ConnectionString`** (and **`BrighterMessaging:Subscriber:AzureServiceBus:ConnectionString`** where applicable) in **secrets.json**. Topic names come from each **`Publications[]` / `Subscriptions[]`** row (**`Topic`**) — e.g. **`orders-events`** in the domain-event sample, not fixed **`order.created`** / **`greeting.made`** unless your appsettings still use those.
+- **BrighterMessaging (Publisher)**: **`Publications`** — **`EventType`**, **`RoutingKey`**, optional **`Topic`**, optional **`ServiceBusEventType`** (maps to **`MessageHeader.Bag["serviceBusEventType"]`** for correlation filters). **`ImplementOutbox`**, **`DatabaseType`**, outbox table name, etc.
+- **BrighterMessaging (Subscriber)**: **`Subscriptions`** — same identifiers plus **`SubscriptionName`**, optional **`AzureServiceBusFilterRules`** ( **`CorrelationRuleFilter`** semantics: OR across rules, AND within a rule). Correlation rules are applied at runtime by **`AzureServiceBusCorrelationRulesHostedService`** after the subscription exists.
+- **Publisher (legacy keys)**: `Publisher:SendIntervalSeconds` (default 5), order routing key overrides where still used.
+- **RabbitMQ**: `BrighterMessaging:*:RabbitMQ:AmqpUri` (secrets), **`Exchange`**, **`SubscriptionName`** (Subscriber) when using RabbitMQ.
+- **Connection strings**: `ConnectionStrings:BrighterOutbox` (Publisher), `ConnectionStrings:BrighterInbox` (Subscriber) — set via `secrets.json` or env; not in appsettings for committed files.
 
 ### Messaging (retry, dead-letter, backoff)
 
@@ -130,7 +191,7 @@ Shared settings for both RabbitMQ and Azure Service Bus live under **`Messaging`
 | `Messaging:AzureServiceBus:DeadLetteringOnMessageExpiration` | Dead-letter on TTL expiry | true |
 | `Messaging:AzureServiceBus:DefaultMessageTimeToLiveDays` | Default message TTL (days) | 3 |
 
-- **Subscriber**: Uses these when creating subscriptions (RMQ and ASB). `LgsEnvelopeHandler` / `RabbitInternalEnvelopeHandler` use a Polly retry pipeline (`ConsumerRetryPipeline`) with exponential backoff driven by `Messaging:Consumer` (in-handler retries).
+- **Subscriber**: Uses these when creating subscriptions (RMQ and ASB). Domain-event handlers (e.g. **`OrderCreatedHandler`**) and legacy **`LgsEnvelopeHandler` / `RabbitInternalEnvelopeHandler`** use a Polly retry pipeline (**`ConsumerRetryPipeline`**) with exponential backoff driven by **`Messaging:Consumer`** (in-handler retries).
 - **Publisher**: `Messaging:DeferredDelaySeconds` is reserved for future deferred/scheduled send.
 
 ### Testing retry and dead-letter
@@ -152,7 +213,7 @@ Change only the `Transport` key and the corresponding broker settings in config.
 ## Limitations
 
 - Outbox sweeper not wired in this sample (Brighter 10.0.x); enable where your version supports it.
-- Azure Service Bus is supported: set `Transport` to `AzureServiceBus` and provide `AzureServiceBus:ConnectionString` in secrets.json. The Publisher creates topics `order.created` and `greeting.made`; the Subscriber creates subscriptions under those topics when using `MakeChannels: Create`.
+- **Azure Service Bus**: Single-message send paths use **`BrighterEventingServiceBusMessageConverter`** so broker **`Subject`** matches **`MessageHeader.Subject`**. **Bulk / batch** sends (**`CreateBatchesAsync`** → **`SendAsync(IAmAMessageBatch)`**) still delegate to Brighter’s inner producer and may not set **`ServiceBusMessage.Subject`** the same way; prefer single sends for correlation-on-Subject scenarios until batching is aligned.
 - Inbox retention: implement a job to clear old inbox rows if needed.
 
 ## References

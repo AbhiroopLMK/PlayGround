@@ -1,5 +1,5 @@
+using System.Text.Json;
 using Microsoft.Azure.Cosmos;
-using Newtonsoft.Json;
 using Paramore.Brighter;
 using Paramore.Brighter.Observability;
 using CosmosPartitionKey = Microsoft.Azure.Cosmos.PartitionKey;
@@ -11,7 +11,6 @@ internal sealed class CosmosBrighterOutbox :
     IAmAnOutboxAsync<Message, object>
 {
     private readonly Container _container;
-    private readonly JsonSerializerSettings _json = new() { TypeNameHandling = TypeNameHandling.Auto };
 
     public CosmosBrighterOutbox(Container container) => _container = container;
 
@@ -34,7 +33,7 @@ internal sealed class CosmosBrighterOutbox :
             id = id,
             MessageId = id,
             Topic = message.Header.Topic,
-            MessageJson = JsonConvert.SerializeObject(message, _json),
+            MessageJson = JsonSerializer.Serialize(message, BrighterMessageCosmosJson.Options),
             Dispatched = false,
             CreatedUtc = DateTimeOffset.UtcNow,
             DispatchedUtc = null
@@ -82,8 +81,10 @@ internal sealed class CosmosBrighterOutbox :
         var id = (string)messageId;
         var response = await _container.ReadItemAsync<OutboxDocument>(id, new CosmosPartitionKey(id), cancellationToken: cancellationToken)
             .ConfigureAwait(ContinueOnCapturedContext);
-        return JsonConvert.DeserializeObject<Message>(response.Resource.MessageJson, _json)
-               ?? throw new InvalidOperationException($"Outbox message '{id}' could not be deserialized.");
+        var message = JsonSerializer.Deserialize<Message>(response.Resource.MessageJson, BrighterMessageCosmosJson.Options)
+                      ?? throw new InvalidOperationException($"Outbox message '{id}' could not be deserialized.");
+        CosmosDeserializedMessageNormalizer.NormalizeAfterDeserialize(message);
+        return message;
     }
 
     public IEnumerable<Message> Get(IEnumerable<Id> messageIds, RequestContext requestContext, int outBoxTimeout = -1, Dictionary<string, object>? args = null)
@@ -158,8 +159,12 @@ internal sealed class CosmosBrighterOutbox :
             var page = await it.ReadNextAsync(cancellationToken).ConfigureAwait(ContinueOnCapturedContext);
             foreach (var item in page)
             {
-                var message = JsonConvert.DeserializeObject<Message>(item.MessageJson, _json);
-                if (message != null) result.Add(message);
+                var message = JsonSerializer.Deserialize<Message>(item.MessageJson, BrighterMessageCosmosJson.Options);
+                if (message != null)
+                {
+                    CosmosDeserializedMessageNormalizer.NormalizeAfterDeserialize(message);
+                    result.Add(message);
+                }
             }
         }
 

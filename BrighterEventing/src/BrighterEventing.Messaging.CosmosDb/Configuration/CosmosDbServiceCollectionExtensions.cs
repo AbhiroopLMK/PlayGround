@@ -7,7 +7,6 @@ using Microsoft.Extensions.DependencyInjection;
 using Paramore.Brighter;
 using Paramore.Brighter.Extensions.DependencyInjection;
 using Paramore.Brighter.MessagingGateway.AzureServiceBus;
-using Paramore.Brighter.MessagingGateway.AzureServiceBus.ClientProvider;
 using Paramore.Brighter.MessagingGateway.RMQ.Async;
 using Paramore.Brighter.ServiceActivator.Extensions.DependencyInjection;
 using Polly;
@@ -66,7 +65,11 @@ public static class CosmosDbServiceCollectionExtensions
         })
         .AddProducers(producers =>
         {
-            if (outbox != null) producers.Outbox = outbox;
+            if (outbox != null)
+            {
+                producers.Outbox = outbox;
+                producers.TransactionProvider = typeof(CosmosObjectBoxTransactionProvider);
+            }
 
             if (options.Transport == BrokerType.AzureServiceBus)
             {
@@ -195,9 +198,11 @@ public static class CosmosDbServiceCollectionExtensions
     private static void ConfigureAzureServiceBus(dynamic producers, BrighterPublisherOptions options, IEventTypeRegistry eventTypeRegistry)
     {
         if (string.IsNullOrWhiteSpace(options.AzureServiceBus.ConnectionString))
-            throw new InvalidOperationException("Azure Service Bus connection string is required when Transport=AzureServiceBus.");
+            throw new InvalidOperationException(
+                "Azure Service Bus connection string is required when Transport=AzureServiceBus. " +
+                "Set BrighterMessaging:Publisher:AzureServiceBus:ConnectionString (or legacy AzureServiceBus:ConnectionString) in secrets.json or environment variables.");
 
-        var connection = new ServiceBusConnectionStringClientProvider(options.AzureServiceBus.ConnectionString!);
+        var connection = ServiceBusConnectionStringHelper.CreateClientProvider(options.AzureServiceBus.ConnectionString!);
         producers.ProducerRegistry = new BrighterEventing.Messaging.AzureServiceBus.SessionAwareAzureServiceBusProducerRegistryFactory(connection,
             BrighterMessagingBrokerRegistration.BuildAzureServiceBusPublications(options, eventTypeRegistry)).Create();
     }
@@ -211,9 +216,11 @@ public static class CosmosDbServiceCollectionExtensions
         TimeSpan? requeueDelay)
     {
         if (string.IsNullOrWhiteSpace(options.AzureServiceBus.ConnectionString))
-            throw new InvalidOperationException("Azure Service Bus connection string is required when Transport=AzureServiceBus.");
+            throw new InvalidOperationException(
+                "Azure Service Bus connection string is required when Transport=AzureServiceBus. " +
+                "Set BrighterMessaging:Subscriber:AzureServiceBus:ConnectionString (or legacy AzureServiceBus:ConnectionString) in secrets.json or environment variables.");
 
-        var clientProvider = new ServiceBusConnectionStringClientProvider(options.AzureServiceBus.ConnectionString!);
+        var clientProvider = ServiceBusConnectionStringHelper.CreateClientProvider(options.AzureServiceBus.ConnectionString!);
         var subscriptionConfiguration = new AzureServiceBusSubscriptionConfiguration
         {
             MaxDeliveryCount = options.AzureServiceBus.MaxDeliveryCount,

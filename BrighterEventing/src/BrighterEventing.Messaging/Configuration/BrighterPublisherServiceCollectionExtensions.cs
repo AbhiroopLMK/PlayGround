@@ -4,7 +4,6 @@ using Microsoft.Extensions.DependencyInjection;
 using Paramore.Brighter;
 using Paramore.Brighter.Extensions.DependencyInjection;
 using Paramore.Brighter.MessagingGateway.AzureServiceBus;
-using Paramore.Brighter.MessagingGateway.AzureServiceBus.ClientProvider;
 using Paramore.Brighter.MessagingGateway.RMQ.Async;
 using Polly;
 using Polly.Registry;
@@ -141,9 +140,11 @@ public static class BrighterPublisherServiceCollectionExtensions
     private static void ConfigureAzureServiceBus(dynamic producers, BrighterPublisherOptions options, IEventTypeRegistry eventTypeRegistry)
     {
         if (string.IsNullOrWhiteSpace(options.AzureServiceBus.ConnectionString))
-            throw new InvalidOperationException("Azure Service Bus connection string is required when Transport=AzureServiceBus.");
+            throw new InvalidOperationException(
+                "Azure Service Bus connection string is required when Transport=AzureServiceBus. " +
+                "Set BrighterMessaging:Publisher:AzureServiceBus:ConnectionString (or legacy AzureServiceBus:ConnectionString) in secrets.json or environment variables.");
 
-        var connection = new ServiceBusConnectionStringClientProvider(options.AzureServiceBus.ConnectionString!);
+        var connection = ServiceBusConnectionStringHelper.CreateClientProvider(options.AzureServiceBus.ConnectionString!);
         producers.ProducerRegistry = new SessionAwareAzureServiceBusProducerRegistryFactory(connection,
             BrighterMessagingBrokerRegistration.BuildAzureServiceBusPublications(options, eventTypeRegistry)).Create();
     }
@@ -158,6 +159,10 @@ public static class BrighterPublisherServiceCollectionExtensions
         options.RabbitMQ.Password ??= configuration["RabbitMqSettings:Password"];
         options.RabbitMQ.ClientProvidedName ??= configuration["RabbitMqSettings:ClientProvidedName"];
         options.RabbitMQ.Exchange = configuration["RabbitMQ:Exchange"] ?? options.RabbitMQ.Exchange;
-        options.AzureServiceBus.ConnectionString ??= configuration["AzureServiceBus:ConnectionString"];
+        // appsettings often sets ConnectionString to ""; ??= would not replace empty string with legacy/env keys.
+        if (string.IsNullOrWhiteSpace(options.AzureServiceBus.ConnectionString))
+            options.AzureServiceBus.ConnectionString = configuration["AzureServiceBus:ConnectionString"];
+        if (!string.IsNullOrWhiteSpace(options.AzureServiceBus.ConnectionString))
+            options.AzureServiceBus.ConnectionString = options.AzureServiceBus.ConnectionString.Trim();
     }
 }

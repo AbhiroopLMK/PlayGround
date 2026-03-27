@@ -4,7 +4,6 @@ using Microsoft.Extensions.DependencyInjection;
 using Paramore.Brighter;
 using Paramore.Brighter.Extensions.DependencyInjection;
 using Paramore.Brighter.MessagingGateway.AzureServiceBus;
-using Paramore.Brighter.MessagingGateway.AzureServiceBus.ClientProvider;
 using Paramore.Brighter.MessagingGateway.RMQ.Async;
 using Paramore.Brighter.ServiceActivator.Extensions.DependencyInjection;
 using Polly;
@@ -137,9 +136,11 @@ public static class BrighterSubscriberServiceCollectionExtensions
         TimeSpan? requeueDelay)
     {
         if (string.IsNullOrWhiteSpace(options.AzureServiceBus.ConnectionString))
-            throw new InvalidOperationException("Azure Service Bus connection string is required when Transport=AzureServiceBus.");
+            throw new InvalidOperationException(
+                "Azure Service Bus connection string is required when Transport=AzureServiceBus. " +
+                "Set BrighterMessaging:Subscriber:AzureServiceBus:ConnectionString (or legacy AzureServiceBus:ConnectionString) in secrets.json or environment variables.");
 
-        var clientProvider = new ServiceBusConnectionStringClientProvider(options.AzureServiceBus.ConnectionString!);
+        var clientProvider = ServiceBusConnectionStringHelper.CreateClientProvider(options.AzureServiceBus.ConnectionString!);
         var subscriptionConfiguration = new AzureServiceBusSubscriptionConfiguration
         {
             MaxDeliveryCount = options.AzureServiceBus.MaxDeliveryCount,
@@ -198,7 +199,10 @@ public static class BrighterSubscriberServiceCollectionExtensions
         options.Consumer.RequeueDelayMs = ReadInt(configuration["Messaging:Consumer:RequeueDelayMs"], options.Consumer.RequeueDelayMs);
         options.Consumer.ReceiveTimeoutMs = ReadInt(configuration["Messaging:Consumer:ReceiveTimeoutMs"], options.Consumer.ReceiveTimeoutMs);
 
-        options.AzureServiceBus.ConnectionString ??= configuration["AzureServiceBus:ConnectionString"];
+        if (string.IsNullOrWhiteSpace(options.AzureServiceBus.ConnectionString))
+            options.AzureServiceBus.ConnectionString = configuration["AzureServiceBus:ConnectionString"];
+        if (!string.IsNullOrWhiteSpace(options.AzureServiceBus.ConnectionString))
+            options.AzureServiceBus.ConnectionString = options.AzureServiceBus.ConnectionString.Trim();
         options.AzureServiceBus.SubscriptionName = configuration["AzureServiceBus:SubscriptionName"] ?? options.AzureServiceBus.SubscriptionName;
         options.AzureServiceBus.MaxDeliveryCount = ReadInt(configuration["Messaging:AzureServiceBus:MaxDeliveryCount"], options.AzureServiceBus.MaxDeliveryCount);
         options.AzureServiceBus.LockDurationSeconds = ReadInt(configuration["Messaging:AzureServiceBus:LockDurationSeconds"], options.AzureServiceBus.LockDurationSeconds);
