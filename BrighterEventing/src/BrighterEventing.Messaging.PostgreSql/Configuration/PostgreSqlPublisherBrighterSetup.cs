@@ -6,6 +6,7 @@ using Paramore.Brighter.Outbox.PostgreSql;
 
 namespace BrighterEventing.Messaging.PostgreSql.Configuration;
 
+/// <summary>PostgreSQL relational outbox wiring for <c>AddBrighterEventingPublisherMessaging</c> (full .NET hosts).</summary>
 public static class PostgreSqlPublisherBrighterSetup
 {
     /// <summary>

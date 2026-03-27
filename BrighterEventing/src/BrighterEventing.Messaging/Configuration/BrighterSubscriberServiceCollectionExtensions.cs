@@ -13,6 +13,10 @@ using System.Reflection;
 
 namespace BrighterEventing.Messaging.Configuration;
 
+/// <summary>
+/// Wires Paramore Brighter <c>AddConsumers</c> for RabbitMQ or Azure Service Bus. Optional inbox callback runs after
+/// transport (from the PostgreSQL or Cosmos hosting package). Consumer retry uses Polly pipelines per event type.
+/// </summary>
 public static class BrighterSubscriberServiceCollectionExtensions
 {
     /// <summary>

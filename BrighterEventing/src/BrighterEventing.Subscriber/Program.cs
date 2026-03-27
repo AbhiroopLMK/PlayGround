@@ -9,6 +9,8 @@ using Paramore.Brighter.ServiceActivator.Extensions.Hosting;
 
 namespace BrighterEventing.Subscriber;
 
+// Sample subscriber: PostgreSQL inbox + Brighter consumers (ASB or Rabbit). Net6 host uses Cosmos package or no DB.
+
 internal static class Program
 {
     private const string InboxTableName = "Inbox";
@@ -24,15 +26,7 @@ internal static class Program
         builder.Services.Configure<TestingOptions>(config.GetSection(TestingOptions.SectionName));
         builder.Services.AddBrighterEventingSubscriberMessaging(
             config,
-            catalog =>
-            {
-                catalog.Map<OrderCreatedEvent>(nameof(OrderCreatedEvent), "OrderCreated")
-                    .WithCloudEventsType<OrderCreatedEvent>(SampleOrderEventNames.OrderCreated);
-                catalog.Map<OrderUpdatedEvent>(nameof(OrderUpdatedEvent), "OrderUpdated")
-                    .WithCloudEventsType<OrderUpdatedEvent>(SampleOrderEventNames.OrderUpdated);
-                catalog.Map<OrderCancelledEvent>(nameof(OrderCancelledEvent), "OrderCancelled")
-                    .WithCloudEventsType<OrderCancelledEvent>(SampleOrderEventNames.OrderCancelled);
-            },
+            catalog => catalog.AddSampleOrderEvents(),
             PostgreSqlSubscriberBrighterSetup.CreateConsumersConfigurer(builder.Services, config),
             typeof(OrderCreatedEvent).Assembly);
 

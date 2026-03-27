@@ -8,8 +8,10 @@ using Paramore.Brighter.ServiceActivator.Extensions.DependencyInjection;
 namespace BrighterEventing.Messaging.Configuration;
 
 /// <summary>
-/// Builds Brighter producer publications and consumer subscriptions from configuration, using an
-/// <see cref="IEventTypeRegistry"/> so the messaging layer does not reference application event types.
+/// Maps <c>BrighterMessaging:*:Publications</c> / <c>Subscriptions</c> to Brighter's transport types.
+/// Azure Service Bus: <see cref="PublicationBinding.Topic"/> is the Service Bus topic path;
+/// <see cref="PublicationBinding.RoutingKey"/> is the CloudEvents subject; each subscription gets a SQL rule on
+/// <c>[cloudEvents:subject]</c> (see <see cref="BrighterCloudEventsSubjectApplicationPropertyKey"/>).
 /// </summary>
 public static class BrighterMessagingBrokerRegistration
 {

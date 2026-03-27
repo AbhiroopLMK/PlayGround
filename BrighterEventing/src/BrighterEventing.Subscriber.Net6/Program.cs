@@ -1,3 +1,5 @@
+// Minimal .NET 6 subscriber: optional Cosmos inbox via BrighterMessaging.CosmosDb; ASB/Rabbit from appsettings.
+
 using BrighterEventing.Messaging.Configuration;
 using BrighterEventing.Subscriber.Net6.Configuration;
 using BrighterEventing.Sample.DomainEvents;
@@ -26,15 +28,7 @@ var host = Host.CreateDefaultBuilder(args)
         services.Configure<TestingOptions>(context.Configuration.GetSection(TestingOptions.SectionName));
         services.AddBrighterEventingSubscriberMessaging(
             context.Configuration,
-            catalog =>
-            {
-                catalog.Map<OrderCreatedEvent>(nameof(OrderCreatedEvent), "OrderCreated")
-                    .WithCloudEventsType<OrderCreatedEvent>(SampleOrderEventNames.OrderCreated);
-                catalog.Map<OrderUpdatedEvent>(nameof(OrderUpdatedEvent), "OrderUpdated")
-                    .WithCloudEventsType<OrderUpdatedEvent>(SampleOrderEventNames.OrderUpdated);
-                catalog.Map<OrderCancelledEvent>(nameof(OrderCancelledEvent), "OrderCancelled")
-                    .WithCloudEventsType<OrderCancelledEvent>(SampleOrderEventNames.OrderCancelled);
-            },
+            catalog => catalog.AddSampleOrderEvents(),
             typeof(OrderCreatedEvent).Assembly);
         services.AddHostedService<ServiceActivatorHostedService>();
         services.Configure<HostOptions>(opts => opts.ShutdownTimeout = TimeSpan.FromSeconds(30));

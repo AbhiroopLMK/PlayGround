@@ -1,5 +1,7 @@
 namespace BrighterEventing.Messaging.Configuration;
 
+// Options bind from BrighterMessaging:Publisher / BrighterMessaging:Subscriber (see SectionName on each options type).
+
 /// <summary>
 /// One publisher registration: domain event type plus broker-specific routing.
 /// For RabbitMQ, <see cref="RoutingKey"/> is the exchange routing key. For Azure Service Bus,

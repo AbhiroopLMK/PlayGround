@@ -8,6 +8,7 @@ using Paramore.Brighter.PostgreSql;
 
 namespace BrighterEventing.Messaging.PostgreSql.Configuration;
 
+/// <summary>PostgreSQL relational inbox wiring for <c>AddBrighterEventingSubscriberMessaging</c> (full .NET hosts).</summary>
 public static class PostgreSqlSubscriberBrighterSetup
 {
     /// <summary>

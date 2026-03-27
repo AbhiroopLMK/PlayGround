@@ -1,3 +1,5 @@
+// Minimal .NET 6 publisher: no PostgreSQL/EF — use BrighterMessaging.CosmosDb for Cosmos outbox if needed.
+
 using BrighterEventing.Messaging.Configuration;
 using BrighterEventing.Publisher.Net6;
 using BrighterEventing.Sample.DomainEvents;
@@ -23,15 +25,7 @@ var host = Host.CreateDefaultBuilder(args)
     {
         services.AddBrighterEventingPublisherMessaging(
             context.Configuration,
-            catalog =>
-            {
-                catalog.Map<OrderCreatedEvent>(nameof(OrderCreatedEvent), "OrderCreated")
-                    .WithCloudEventsType<OrderCreatedEvent>(SampleOrderEventNames.OrderCreated);
-                catalog.Map<OrderUpdatedEvent>(nameof(OrderUpdatedEvent), "OrderUpdated")
-                    .WithCloudEventsType<OrderUpdatedEvent>(SampleOrderEventNames.OrderUpdated);
-                catalog.Map<OrderCancelledEvent>(nameof(OrderCancelledEvent), "OrderCancelled")
-                    .WithCloudEventsType<OrderCancelledEvent>(SampleOrderEventNames.OrderCancelled);
-            },
+            catalog => catalog.AddSampleOrderEvents(),
             typeof(OrderCreatedEvent).Assembly);
         services.AddHostedService<PublisherHostedService>();
     })

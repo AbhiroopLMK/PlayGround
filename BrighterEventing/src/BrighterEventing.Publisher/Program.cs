@@ -10,6 +10,8 @@ using Npgsql;
 
 namespace BrighterEventing.Publisher;
 
+// Sample publisher: EF Core + PostgreSQL outbox, Brighter ASB/Rabbit producers, optional DemoOrders DDL for local demos.
+
 internal static class Program
 {
     private const string OutboxTableName = "Outbox";
@@ -29,15 +31,7 @@ internal static class Program
 
         builder.Services.AddBrighterEventingPublisherMessaging(
             config,
-            catalog =>
-            {
-                catalog.Map<OrderCreatedEvent>(nameof(OrderCreatedEvent), "OrderCreated")
-                    .WithCloudEventsType<OrderCreatedEvent>(SampleOrderEventNames.OrderCreated);
-                catalog.Map<OrderUpdatedEvent>(nameof(OrderUpdatedEvent), "OrderUpdated")
-                    .WithCloudEventsType<OrderUpdatedEvent>(SampleOrderEventNames.OrderUpdated);
-                catalog.Map<OrderCancelledEvent>(nameof(OrderCancelledEvent), "OrderCancelled")
-                    .WithCloudEventsType<OrderCancelledEvent>(SampleOrderEventNames.OrderCancelled);
-            },
+            catalog => catalog.AddSampleOrderEvents(),
             PostgreSqlPublisherBrighterSetup.CreateProducersConfigurer(builder.Services, config),
             typeof(OrderCreatedEvent).Assembly);
 

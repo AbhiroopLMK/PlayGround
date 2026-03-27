@@ -13,6 +13,10 @@ using System.Reflection;
 
 namespace BrighterEventing.Messaging.Configuration;
 
+/// <summary>
+/// Wires Paramore Brighter <c>AddProducers</c> for RabbitMQ or Azure Service Bus from configuration.
+/// Optional outbox: pass <c>configureProducersBeforeTransport</c> from the PostgreSQL or Cosmos hosting package.
+/// </summary>
 public static class BrighterPublisherServiceCollectionExtensions
 {
     /// <summary>

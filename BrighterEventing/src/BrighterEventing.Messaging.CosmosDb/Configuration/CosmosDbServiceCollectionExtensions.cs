@@ -16,6 +16,12 @@ using System.Reflection;
 
 namespace BrighterEventing.Messaging.CosmosDb.Configuration;
 
+/// <summary>
+/// Brighter registration for hosts that use <strong>Cosmos DB</strong> for outbox/inbox instead of PostgreSQL.
+/// Transport (RabbitMQ / Azure Service Bus) and publication/subscription wiring match
+/// <see cref="BrighterPublisherServiceCollectionExtensions"/> / <see cref="BrighterSubscriberServiceCollectionExtensions"/>;
+/// only durability storage differs.
+/// </summary>
 public static class CosmosDbServiceCollectionExtensions
 {
     public static IServiceCollection AddBrighterEventingPublisherMessaging(
@@ -37,11 +43,7 @@ public static class CosmosDbServiceCollectionExtensions
         IEventTypeRegistry eventTypeRegistry,
         params Assembly[] autoFromAssemblies)
     {
-        var options = new BrighterPublisherOptions();
-        configuration.GetSection(BrighterPublisherOptions.SectionName).Bind(options);
-        if (string.IsNullOrWhiteSpace(options.Transport))
-            options.Transport = configuration["Transport"] ?? BrokerType.RabbitMQ;
-        BindFallbackPublisherSettingsFromLegacyConfig(configuration, options);
+        var options = BrighterPublisherServiceCollectionExtensions.BindPublisherOptions(configuration);
 
         var outbox = options.ImplementOutbox && options.DatabaseType == DatabaseType.CosmosDb
             ? CreateOutbox(options)
@@ -98,11 +100,7 @@ public static class CosmosDbServiceCollectionExtensions
         IEventTypeRegistry eventTypeRegistry,
         params Assembly[] autoFromAssemblies)
     {
-        var options = new BrighterSubscriberOptions();
-        configuration.GetSection(BrighterSubscriberOptions.SectionName).Bind(options);
-        if (string.IsNullOrWhiteSpace(options.Transport))
-            options.Transport = configuration["Transport"] ?? BrokerType.RabbitMQ;
-        BindFallbackSubscriberSettingsFromLegacyConfig(configuration, options);
+        var options = BrighterSubscriberServiceCollectionExtensions.BindSubscriberOptions(configuration);
 
         var inbox = options.ImplementInbox && options.DatabaseType == DatabaseType.CosmosDb
             ? CreateInbox(options)
@@ -258,37 +256,4 @@ public static class CosmosDbServiceCollectionExtensions
             requeueDelay);
         consumers.DefaultChannelFactory = new ChannelFactory(new RmqMessageConsumerFactory(connection));
     }
-
-    private static void BindFallbackPublisherSettingsFromLegacyConfig(IConfiguration configuration, BrighterPublisherOptions options)
-    {
-        options.Transport = configuration["Transport"] ?? options.Transport;
-        options.RabbitMQ.AmqpUri ??= configuration["RabbitMQ:AmqpUri"];
-        options.RabbitMQ.HostName ??= configuration["RabbitMqSettings:HostName"];
-        options.RabbitMQ.Port ??= configuration["RabbitMqSettings:Port"];
-        options.RabbitMQ.Username ??= configuration["RabbitMqSettings:Username"];
-        options.RabbitMQ.Password ??= configuration["RabbitMqSettings:Password"];
-        options.RabbitMQ.ClientProvidedName ??= configuration["RabbitMqSettings:ClientProvidedName"];
-        options.RabbitMQ.Exchange = configuration["RabbitMQ:Exchange"] ?? options.RabbitMQ.Exchange;
-        options.AzureServiceBus.ConnectionString ??= configuration["AzureServiceBus:ConnectionString"];
-    }
-
-    private static void BindFallbackSubscriberSettingsFromLegacyConfig(IConfiguration configuration, BrighterSubscriberOptions options)
-    {
-        options.Transport = configuration["Transport"] ?? options.Transport;
-        options.Consumer.MaxRetryCount = ReadInt(configuration["Messaging:Consumer:MaxRetryCount"], options.Consumer.MaxRetryCount);
-        options.Consumer.RequeueDelayMs = ReadInt(configuration["Messaging:Consumer:RequeueDelayMs"], options.Consumer.RequeueDelayMs);
-        options.Consumer.ReceiveTimeoutMs = ReadInt(configuration["Messaging:Consumer:ReceiveTimeoutMs"], options.Consumer.ReceiveTimeoutMs);
-        options.AzureServiceBus.ConnectionString ??= configuration["AzureServiceBus:ConnectionString"];
-        options.AzureServiceBus.SubscriptionName = configuration["AzureServiceBus:SubscriptionName"] ?? options.AzureServiceBus.SubscriptionName;
-        options.RabbitMQ.AmqpUri ??= configuration["RabbitMQ:AmqpUri"];
-        options.RabbitMQ.HostName ??= configuration["RabbitMqSettings:HostName"];
-        options.RabbitMQ.Port ??= configuration["RabbitMqSettings:Port"];
-        options.RabbitMQ.Username ??= configuration["RabbitMqSettings:Username"];
-        options.RabbitMQ.Password ??= configuration["RabbitMqSettings:Password"];
-        options.RabbitMQ.Exchange = configuration["RabbitMQ:Exchange"] ?? options.RabbitMQ.Exchange;
-        options.RabbitMQ.SubscriptionName = configuration["RabbitMQ:SubscriptionName"] ?? options.RabbitMQ.SubscriptionName;
-        options.RabbitMQ.ClientProvidedName ??= configuration["RabbitMqSettings:ClientProvidedName"];
-    }
-
-    private static int ReadInt(string? raw, int fallback) => int.TryParse(raw, out var i) ? i : fallback;
 }
