@@ -1,3 +1,4 @@
+using BrighterEventing.Messaging.AzureServiceBus;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Paramore.Brighter;
@@ -114,7 +115,7 @@ public static class BrighterSubscriberServiceCollectionExtensions
         {
             if (options.Transport == BrokerType.AzureServiceBus)
             {
-                ConfigureAzureServiceBusConsumers(consumers, options, eventTypeRegistry, timeout, requeueDelay);
+                ConfigureAzureServiceBusConsumers(services, consumers, options, eventTypeRegistry, timeout, requeueDelay);
             }
             else
             {
@@ -128,6 +129,7 @@ public static class BrighterSubscriberServiceCollectionExtensions
     }
 
     private static void ConfigureAzureServiceBusConsumers(
+        IServiceCollection services,
         ConsumersOptions consumers,
         BrighterSubscriberOptions options,
         IEventTypeRegistry eventTypeRegistry,
@@ -156,6 +158,8 @@ public static class BrighterSubscriberServiceCollectionExtensions
             requeueDelay,
             subscriptionConfiguration);
         consumers.DefaultChannelFactory = new AzureServiceBusChannelFactory(new AzureServiceBusConsumerFactory(clientProvider));
+
+        services.AddHostedService<AzureServiceBusCorrelationRulesHostedService>();
     }
 
     private static void ConfigureRabbitMqConsumers(

@@ -23,6 +23,12 @@ public sealed class PublicationBinding
     /// Azure Service Bus only: topic entity path (Brighter <c>Publication.Topic</c>). Ignored for RabbitMQ.
     /// </summary>
     public string Topic { get; set; } = "";
+
+    /// <summary>
+    /// Azure Service Bus only: optional application property <c>serviceBusEventType</c> for consumers that filter on it.
+    /// When set, mappers should copy this onto <see cref="Paramore.Brighter.MessageHeader.Bag"/> (see <see cref="AzureServiceBus.ServiceBusApplicationPropertyKeys"/>).
+    /// </summary>
+    public string? ServiceBusEventType { get; set; }
 }
 
 /// <summary>
@@ -36,8 +42,9 @@ public sealed class SubscriptionBinding
     public string EventType { get; set; } = "";
 
     /// <summary>
-    /// RabbitMQ: routing key. Azure Service Bus: CloudEvents subject string (must match the publisher); used in the
-    /// subscription SQL rule on user property <c>[cloudEvents:subject]</c> (Brighter does not set broker <c>Subject</c>).
+    /// RabbitMQ: routing key. Azure Service Bus: CloudEvents subject string (must match the publisher); used for legacy
+    /// SQL filter on <c>[cloudEvents:subject]</c> when <see cref="AzureServiceBusFilterRules"/> is empty. When using
+    /// <see cref="AsbFilterPropertyKind.BrokerSubject"/>, match the publisher's broker subject (see converter on send path).
     /// </summary>
     public string RoutingKey { get; set; } = "";
 
@@ -58,6 +65,13 @@ public sealed class SubscriptionBinding
     /// When both <see cref="Topic"/> and <see cref="ChannelName"/> are empty for ASB, defaults to <see cref="SubscriptionName"/>.
     /// </summary>
     public string ChannelName { get; set; } = "";
+
+    /// <summary>
+    /// Azure Service Bus only: optional filter rules. When non-empty, builds one SQL rule as
+    /// <c>(rule1) OR (rule2) OR …</c> where each rule ANDs its <see cref="AsbSubscriptionFilterCondition"/> clauses.
+    /// When empty, uses legacy <see cref="RoutingKey"/> as <c>[cloudEvents:subject]</c> only.
+    /// </summary>
+    public List<AsbSubscriptionFilterRule>? AzureServiceBusFilterRules { get; set; }
 }
 
 public static class BrokerType

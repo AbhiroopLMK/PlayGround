@@ -10,8 +10,11 @@ namespace BrighterEventing.Messaging.Configuration;
 /// <summary>
 /// Maps <c>BrighterMessaging:*:Publications</c> / <c>Subscriptions</c> to Brighter's transport types.
 /// Azure Service Bus: <see cref="PublicationBinding.Topic"/> is the Service Bus topic path;
-/// <see cref="PublicationBinding.RoutingKey"/> is the CloudEvents subject; each subscription gets a SQL rule on
-/// <c>[cloudEvents:subject]</c> (see <see cref="BrighterCloudEventsSubjectApplicationPropertyKey"/>).
+/// <see cref="PublicationBinding.RoutingKey"/> is the CloudEvents subject. Brighter only creates subscriptions with
+/// SQL or default rules; <see cref="BrighterEventing.Messaging.AzureServiceBus.AzureServiceBusCorrelationRulesHostedService"/> applies
+/// correlation rule filters from
+/// <see cref="SubscriptionBinding.AzureServiceBusFilterRules"/> (OR across rules). Publishers set broker
+/// <c>Subject</c> via <see cref="BrighterEventing.Messaging.AzureServiceBus.BrighterEventingServiceBusMessageConverter"/>.
 /// </summary>
 public static class BrighterMessagingBrokerRegistration
 {
@@ -162,9 +165,7 @@ public static class BrighterMessagingBrokerRegistration
             var topicPath = ResolveChannelName(s, options);
             var topicRoutingKey = new RoutingKey(topicPath);
             var eventClrType = registry.Resolve(s.EventType);
-            var subConfig = CloneAsbSubscriptionConfigurationWithSubjectFilter(
-                subscriptionConfiguration,
-                s.RoutingKey.Trim());
+            var subConfig = BuildAsbSubscriptionConfiguration(subscriptionConfiguration, s);
             list.Add(InvokeCreateAzureServiceBusSubscription(
                 eventClrType,
                 subscriptionEntityName,
@@ -179,14 +180,12 @@ public static class BrighterMessagingBrokerRegistration
         return list.ToArray();
     }
 
-    private static AzureServiceBusSubscriptionConfiguration CloneAsbSubscriptionConfigurationWithSubjectFilter(
+    private static AzureServiceBusSubscriptionConfiguration BuildAsbSubscriptionConfiguration(
         AzureServiceBusSubscriptionConfiguration template,
-        string cloudEventsSubject)
+        SubscriptionBinding binding)
     {
-        var escaped = cloudEventsSubject.Replace("'", "''", StringComparison.Ordinal);
-        // SQL rule: user properties are referenced by name, not sys.ApplicationProperties[...] (that path is invalid on the broker).
-        // Brackets are required when the name contains ':' — see https://learn.microsoft.com/azure/service-bus-messaging/topic-filters-sql-syntax
-        var prop = BrighterCloudEventsSubjectApplicationPropertyKey;
+        // Brighter maps non-empty SqlFilter to a single SqlRuleFilter named "sqlFilter". Correlation
+        // filters are applied by AzureServiceBusCorrelationRulesHostedService after the subscription exists.
         return new AzureServiceBusSubscriptionConfiguration
         {
             MaxDeliveryCount = template.MaxDeliveryCount,
@@ -196,9 +195,17 @@ public static class BrighterMessagingBrokerRegistration
             QueueIdleBeforeDelete = template.QueueIdleBeforeDelete,
             RequireSession = template.RequireSession,
             UseServiceBusQueue = template.UseServiceBusQueue,
-            SqlFilter = $"[{prop}] = '{escaped}'",
+            SqlFilter = string.Empty,
         };
     }
+
+    /// <summary>Service Bus topic path for a subscription binding (same resolution as Brighter subscriptions).</summary>
+    public static string ResolveAzureServiceBusTopicPath(SubscriptionBinding binding, BrighterSubscriberOptions options) =>
+        ResolveChannelName(binding, options);
+
+    /// <summary>Subscription entity name under the topic (Brighter channel name).</summary>
+    public static string ResolveAzureServiceBusSubscriptionName(SubscriptionBinding binding, BrighterSubscriberOptions options) =>
+        ResolveSubscriptionName(binding, options);
 
     private static RmqPublication InvokeAddRmqPublication(Type eventType, RoutingKey rk)
     {

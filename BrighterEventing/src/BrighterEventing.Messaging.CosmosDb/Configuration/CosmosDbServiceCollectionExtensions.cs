@@ -1,3 +1,4 @@
+using BrighterEventing.Messaging.AzureServiceBus;
 using BrighterEventing.Messaging.Configuration;
 using BrighterEventing.Messaging.CosmosDb.Durability;
 using Microsoft.Azure.Cosmos;
@@ -135,7 +136,7 @@ public static class CosmosDbServiceCollectionExtensions
         {
             if (options.Transport == BrokerType.AzureServiceBus)
             {
-                ConfigureAzureServiceBusConsumers(consumers, options, eventTypeRegistry, timeout, requeueDelay);
+                ConfigureAzureServiceBusConsumers(services, consumers, options, eventTypeRegistry, timeout, requeueDelay);
             }
             else
             {
@@ -202,6 +203,7 @@ public static class CosmosDbServiceCollectionExtensions
     }
 
     private static void ConfigureAzureServiceBusConsumers(
+        IServiceCollection services,
         ConsumersOptions consumers,
         BrighterSubscriberOptions options,
         IEventTypeRegistry eventTypeRegistry,
@@ -227,6 +229,8 @@ public static class CosmosDbServiceCollectionExtensions
             requeueDelay,
             subscriptionConfiguration);
         consumers.DefaultChannelFactory = new AzureServiceBusChannelFactory(new AzureServiceBusConsumerFactory(clientProvider));
+
+        services.AddHostedService<AzureServiceBusCorrelationRulesHostedService>();
     }
 
     private static void ConfigureRabbitMqConsumers(

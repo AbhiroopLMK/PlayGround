@@ -12,6 +12,6 @@ public static class SessionAwareAzureServiceBusMessagePublisher
     public static ServiceBusMessage ConvertToServiceBusMessage(Message message)
     {
         message.Header.EnsureCanonicalSessionIdInBag();
-        return AzureServiceBusMessagePublisher.ConvertToServiceBusMessage(message);
+        return BrighterEventingServiceBusMessageConverter.ConvertToServiceBusMessage(message);
     }
 }

@@ -53,25 +53,25 @@ internal sealed class SessionIdNormalizingAzureServiceBusMessageProducer :
     public void Send(Message message)
     {
         message.Header.EnsureCanonicalSessionIdInBag();
-        _inner.Send(message);
+        BrighterEventingAzureServiceBusProducerSend.SendWithDelaySync(_inner, message, null);
     }
 
     public void SendWithDelay(Message message, TimeSpan? delay)
     {
         message.Header.EnsureCanonicalSessionIdInBag();
-        _inner.SendWithDelay(message, delay);
+        BrighterEventingAzureServiceBusProducerSend.SendWithDelaySync(_inner, message, delay);
     }
 
     public Task SendAsync(Message message, CancellationToken cancellationToken = default)
     {
         message.Header.EnsureCanonicalSessionIdInBag();
-        return _inner.SendAsync(message, cancellationToken);
+        return BrighterEventingAzureServiceBusProducerSend.SendWithDelayAsync(_inner, message, null, cancellationToken);
     }
 
     public Task SendWithDelayAsync(Message message, TimeSpan? delay = null, CancellationToken cancellationToken = default)
     {
         message.Header.EnsureCanonicalSessionIdInBag();
-        return _inner.SendWithDelayAsync(message, delay, cancellationToken);
+        return BrighterEventingAzureServiceBusProducerSend.SendWithDelayAsync(_inner, message, delay, cancellationToken);
     }
 
     public async ValueTask<IEnumerable<IAmAMessageBatch>> CreateBatchesAsync(
