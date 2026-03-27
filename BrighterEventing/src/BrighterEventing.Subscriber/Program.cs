@@ -28,7 +28,7 @@ internal static class Program
             config,
             catalog => catalog.AddSampleOrderEvents(),
             PostgreSqlSubscriberBrighterSetup.CreateConsumersConfigurer(builder.Services, config),
-            typeof(OrderCreatedEvent).Assembly);
+            SampleEventCatalog.Assembly);
 
         builder.Services.AddHostedService<Paramore.Brighter.ServiceActivator.Extensions.Hosting.ServiceActivatorHostedService>();
 

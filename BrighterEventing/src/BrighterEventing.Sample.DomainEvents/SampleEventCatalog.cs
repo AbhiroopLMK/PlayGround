@@ -1,3 +1,4 @@
+using System.Reflection;
 using BrighterEventing.Messaging.Configuration;
 
 namespace BrighterEventing.Sample.DomainEvents;
@@ -7,6 +8,12 @@ namespace BrighterEventing.Sample.DomainEvents;
 /// </summary>
 public static class SampleEventCatalog
 {
+    /// <summary>
+    /// Pass to Brighter <c>AutoFromAssemblies</c> (last parameter of <c>AddBrighterEventing*Messaging</c>): this assembly
+    /// contains the sample events and their <c>IAmAMessageMapper&lt;T&gt;</c> implementations.
+    /// </summary>
+    public static Assembly Assembly => typeof(SampleEventCatalog).Assembly;
+
     /// <summary>
     /// Registers the three order events with Brighter's <see cref="EventTypeCatalogBuilder"/> (CLR keys + LGS CloudEvents types).
     /// </summary>

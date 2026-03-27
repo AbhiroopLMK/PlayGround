@@ -33,7 +33,7 @@ internal static class Program
             config,
             catalog => catalog.AddSampleOrderEvents(),
             PostgreSqlPublisherBrighterSetup.CreateProducersConfigurer(builder.Services, config),
-            typeof(OrderCreatedEvent).Assembly);
+            SampleEventCatalog.Assembly);
 
         builder.Services.AddHostedService<PublisherHostedService>();
 

@@ -29,7 +29,7 @@ var host = Host.CreateDefaultBuilder(args)
         services.AddBrighterEventingSubscriberMessaging(
             context.Configuration,
             catalog => catalog.AddSampleOrderEvents(),
-            typeof(OrderCreatedEvent).Assembly);
+            SampleEventCatalog.Assembly);
         services.AddHostedService<ServiceActivatorHostedService>();
         services.Configure<HostOptions>(opts => opts.ShutdownTimeout = TimeSpan.FromSeconds(30));
     })

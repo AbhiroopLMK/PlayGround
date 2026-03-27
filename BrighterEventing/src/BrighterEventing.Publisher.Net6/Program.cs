@@ -26,7 +26,7 @@ var host = Host.CreateDefaultBuilder(args)
         services.AddBrighterEventingPublisherMessaging(
             context.Configuration,
             catalog => catalog.AddSampleOrderEvents(),
-            typeof(OrderCreatedEvent).Assembly);
+            SampleEventCatalog.Assembly);
         services.AddHostedService<PublisherHostedService>();
     })
     .Build();
