@@ -14,4 +14,10 @@ public interface IEventTypeRegistry
     /// <summary>Resolves a configured event name to a CLR type.</summary>
     /// <exception cref="InvalidOperationException">Unknown or empty <paramref name="eventTypeFromConfig"/>.</exception>
     Type Resolve(string eventTypeFromConfig);
+
+    /// <summary>
+    /// CloudEvents <c>type</c> for Brighter producer registry lookup. Must match <see cref="MessageHeader.Type"/> on
+    /// outgoing messages (the same string your mappers use as LGS / CloudEvents <c>type</c>).
+    /// </summary>
+    CloudEventsType GetCloudEventsType(Type clrType);
 }

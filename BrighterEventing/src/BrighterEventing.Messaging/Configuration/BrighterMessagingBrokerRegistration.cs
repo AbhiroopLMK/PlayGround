@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Reflection;
 using Paramore.Brighter;
 using Paramore.Brighter.MessagingGateway.AzureServiceBus;
@@ -12,6 +13,12 @@ namespace BrighterEventing.Messaging.Configuration;
 /// </summary>
 public static class BrighterMessagingBrokerRegistration
 {
+    /// <summary>
+    /// Brighter's ASB producer maps <see cref="MessageHeader.Subject"/> to this application property (Paramore
+    /// <c>cloudEvents:subject</c>), not to the broker's native <c>Subject</c> field on the Service Bus message.
+    /// </summary>
+    internal const string BrighterCloudEventsSubjectApplicationPropertyKey = "cloudEvents:subject";
+
     private static readonly MethodInfo AddRmqPublicationForEventMethod =
         typeof(BrighterMessagingBrokerRegistration).GetMethods(BindingFlags.NonPublic | BindingFlags.Static)
             .Single(m => m.Name == nameof(AddRmqPublicationForEvent) && m.IsGenericMethodDefinition);
@@ -70,21 +77,46 @@ public static class BrighterMessagingBrokerRegistration
         return list.ToArray();
     }
 
+    /// <remarks>
+    /// Brighter's Azure Service Bus producer registry keys on <c>(topic, CloudEvents type)</c>, not CLR type.
+    /// Each <see cref="AzureServiceBusPublication{T}"/> sets <see cref="Publication.Type"/> from the event class so
+    /// multiple domain events can share the same Service Bus topic. The registry still allows only one row per
+    /// <c>(topic, event CLR type)</c> when subject differs; duplicate config rows are merged (first subject wins);
+    /// use <see cref="GetRegisteredRoutingKeysForEventType"/> and <c>PublishRoutingKey</c> for other subjects.
+    /// </remarks>
     public static AzureServiceBusPublication[] BuildAzureServiceBusPublications(
         BrighterPublisherOptions options,
         IEventTypeRegistry registry)
     {
         ValidatePublications(options, registry);
+        var seen = new HashSet<(Type EventType, string TopicPath)>();
         var list = new List<AzureServiceBusPublication>();
         foreach (var p in options.Publications)
         {
             var eventClrType = registry.Resolve(p.EventType);
-            var rk = new RoutingKey(p.RoutingKey);
-            list.Add(InvokeAddAzureServiceBusPublication(eventClrType, rk));
+            var path = GetAzureServiceBusPublicationTopicPath(p);
+            if (!seen.Add((eventClrType, path)))
+                continue;
+
+            var topicPath = new RoutingKey(path);
+            var subject = GetAzureServiceBusPublicationSubject(p);
+            var cloudEventsType = registry.GetCloudEventsType(eventClrType);
+            list.Add(InvokeAddAzureServiceBusPublication(eventClrType, topicPath, subject, cloudEventsType));
         }
 
         return list.ToArray();
     }
+
+    /// <summary>
+    /// ASB topic entity path: explicit <see cref="PublicationBinding.Topic"/> or <see cref="PublicationBinding.RoutingKey"/> when Topic is unset.
+    /// </summary>
+    public static string GetAzureServiceBusPublicationTopicPath(PublicationBinding p) =>
+        !string.IsNullOrWhiteSpace(p.Topic) ? p.Topic.Trim() : p.RoutingKey.Trim();
+
+    /// <summary>
+    /// CloudEvents subject: <see cref="PublicationBinding.RoutingKey"/> (matches subscription subject filter).
+    /// </summary>
+    public static string GetAzureServiceBusPublicationSubject(PublicationBinding p) => p.RoutingKey.Trim();
 
     public static Subscription[] BuildRmqSubscriptions(
         BrighterSubscriberOptions options,
@@ -124,22 +156,46 @@ public static class BrighterMessagingBrokerRegistration
         var list = new List<Subscription>();
         foreach (var s in options.Subscriptions)
         {
-            var subName = ResolveSubscriptionName(s, options);
-            var channelName = ResolveChannelName(s, options);
-            var rk = new RoutingKey(s.RoutingKey);
+            var subscriptionEntityName = ResolveSubscriptionName(s, options);
+            var topicPath = ResolveChannelName(s, options);
+            var topicRoutingKey = new RoutingKey(topicPath);
             var eventClrType = registry.Resolve(s.EventType);
+            var subConfig = CloneAsbSubscriptionConfigurationWithSubjectFilter(
+                subscriptionConfiguration,
+                s.RoutingKey.Trim());
             list.Add(InvokeCreateAzureServiceBusSubscription(
                 eventClrType,
-                subName,
-                channelName,
-                rk,
+                subscriptionEntityName,
+                topicPath,
+                topicRoutingKey,
                 timeout,
                 options,
                 requeueDelay,
-                subscriptionConfiguration));
+                subConfig));
         }
 
         return list.ToArray();
+    }
+
+    private static AzureServiceBusSubscriptionConfiguration CloneAsbSubscriptionConfigurationWithSubjectFilter(
+        AzureServiceBusSubscriptionConfiguration template,
+        string cloudEventsSubject)
+    {
+        var escaped = cloudEventsSubject.Replace("'", "''", StringComparison.Ordinal);
+        // SQL rule: user properties are referenced by name, not sys.ApplicationProperties[...] (that path is invalid on the broker).
+        // Brackets are required when the name contains ':' — see https://learn.microsoft.com/azure/service-bus-messaging/topic-filters-sql-syntax
+        var prop = BrighterCloudEventsSubjectApplicationPropertyKey;
+        return new AzureServiceBusSubscriptionConfiguration
+        {
+            MaxDeliveryCount = template.MaxDeliveryCount,
+            DeadLetteringOnMessageExpiration = template.DeadLetteringOnMessageExpiration,
+            LockDuration = template.LockDuration,
+            DefaultMessageTimeToLive = template.DefaultMessageTimeToLive,
+            QueueIdleBeforeDelete = template.QueueIdleBeforeDelete,
+            RequireSession = template.RequireSession,
+            UseServiceBusQueue = template.UseServiceBusQueue,
+            SqlFilter = $"[{prop}] = '{escaped}'",
+        };
     }
 
     private static RmqPublication InvokeAddRmqPublication(Type eventType, RoutingKey rk)
@@ -148,10 +204,14 @@ public static class BrighterMessagingBrokerRegistration
         return (RmqPublication)m.Invoke(null, new object[] { rk })!;
     }
 
-    private static AzureServiceBusPublication InvokeAddAzureServiceBusPublication(Type eventType, RoutingKey rk)
+    private static AzureServiceBusPublication InvokeAddAzureServiceBusPublication(
+        Type eventType,
+        RoutingKey topicPath,
+        string subject,
+        CloudEventsType cloudEventsType)
     {
         var m = AddAzureServiceBusPublicationForEventMethod.MakeGenericMethod(eventType);
-        return (AzureServiceBusPublication)m.Invoke(null, new object[] { rk })!;
+        return (AzureServiceBusPublication)m.Invoke(null, new object[] { topicPath, subject, cloudEventsType })!;
     }
 
     private static Subscription InvokeCreateRmqSubscription(
@@ -177,8 +237,8 @@ public static class BrighterMessagingBrokerRegistration
 
     private static Subscription InvokeCreateAzureServiceBusSubscription(
         Type eventType,
-        string subName,
-        string channelName,
+        string subscriptionName,
+        string topicPath,
         RoutingKey rk,
         TimeSpan timeout,
         BrighterSubscriberOptions options,
@@ -188,8 +248,8 @@ public static class BrighterMessagingBrokerRegistration
         var m = CreateAzureServiceBusSubscriptionForEventMethod.MakeGenericMethod(eventType);
         return (Subscription)m.Invoke(null, new object?[]
         {
-            subName,
-            channelName,
+            subscriptionName,
+            topicPath,
             rk,
             timeout,
             options,
@@ -205,11 +265,16 @@ public static class BrighterMessagingBrokerRegistration
             Topic = rk
         };
 
-    private static AzureServiceBusPublication AddAzureServiceBusPublicationForEvent<T>(RoutingKey rk) where T : Event =>
+    private static AzureServiceBusPublication AddAzureServiceBusPublicationForEvent<T>(
+        RoutingKey topicPath,
+        string subject,
+        CloudEventsType cloudEventsType) where T : Event =>
         new AzureServiceBusPublication<T>
         {
             MakeChannels = OnMissingChannel.Create,
-            Topic = rk
+            Topic = topicPath,
+            Subject = subject,
+            Type = cloudEventsType
         };
 
     private static Subscription CreateRmqSubscriptionForEvent<T>(
@@ -229,18 +294,24 @@ public static class BrighterMessagingBrokerRegistration
             requeueDelay: requeueDelay,
             messagePumpType: MessagePumpType.Proactor);
 
+    /// <remarks>
+    /// Brighter's ASB topic consumer uses the subscription's routing key as the Service Bus topic path, channel name as
+    /// the subscription entity under that topic, and Brighter's subscription name for identification (see Paramore.Brighter
+    /// <c>AzureServiceBusTopicConsumer</c>). Config <see cref="SubscriptionBinding.RoutingKey"/> is the CloudEvents
+    /// subject and is applied via SQL filter on the subscription, not as the topic name.
+    /// </remarks>
     private static Subscription CreateAzureServiceBusSubscriptionForEvent<T>(
-        string subName,
-        string channelName,
-        RoutingKey rk,
+        string subscriptionEntityName,
+        string topicPath,
+        RoutingKey topicRoutingKey,
         TimeSpan timeout,
         BrighterSubscriberOptions options,
         TimeSpan? requeueDelay,
         AzureServiceBusSubscriptionConfiguration subscriptionConfiguration) where T : Event =>
         new AzureServiceBusSubscription<T>(
-            new SubscriptionName(subName),
-            new ChannelName(channelName),
-            rk,
+            new SubscriptionName(topicPath),
+            new ChannelName(subscriptionEntityName),
+            topicRoutingKey,
             timeOut: timeout,
             makeChannels: OnMissingChannel.Create,
             requeueCount: options.Consumer.MaxRetryCount,
@@ -314,11 +385,17 @@ public static class BrighterMessagingBrokerRegistration
 
     private static string ResolveChannelName(SubscriptionBinding s, BrighterSubscriberOptions options)
     {
+        if (options.Transport == BrokerType.AzureServiceBus)
+        {
+            if (!string.IsNullOrWhiteSpace(s.Topic))
+                return s.Topic.Trim();
+            if (!string.IsNullOrWhiteSpace(s.ChannelName))
+                return s.ChannelName.Trim();
+            return ResolveSubscriptionName(s, options);
+        }
+
         if (!string.IsNullOrWhiteSpace(s.ChannelName))
             return s.ChannelName.Trim();
-
-        if (options.Transport == BrokerType.AzureServiceBus)
-            return ResolveSubscriptionName(s, options);
 
         throw new InvalidOperationException(
             "BrighterMessaging:Subscriber:Subscriptions:ChannelName is required when Transport=RabbitMQ.");

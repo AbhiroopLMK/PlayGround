@@ -30,6 +30,8 @@ public static class WireEnvelopeBuilder
 
     /// <summary>
     /// Builds either an Lgs-shaped message (Azure Service Bus) or Rabbit internal envelope from the same logical payload.
+    /// For Azure Service Bus, <paramref name="publication"/>.<c>Topic</c> is the Service Bus topic path (routing key);
+    /// subject comes from <paramref name="publishRoutingKey"/> when set, otherwise <paramref name="publication"/>.<c>Subject</c>.
     /// </summary>
     public static Message BuildForConfiguredTransport(
         Id messageId,
@@ -43,20 +45,31 @@ public static class WireEnvelopeBuilder
         string rabbitSchemaVersion,
         object payload)
     {
-        var topic = ResolveTopic(publishRoutingKey, publication);
         if (ResolveTransport(configuration) == BrokerType.AzureServiceBus)
+        {
+            if (publication.Topic is null)
+                throw new InvalidOperationException("Publication Topic is not set.");
+
+            var subject = !string.IsNullOrWhiteSpace(publishRoutingKey)
+                ? publishRoutingKey.Trim()
+                : publication.Subject ?? string.Empty;
+
             return BuildLgsMessage(
                 messageId,
-                topic,
+                publication.Topic,
+                subject,
                 lgsType,
                 lgsSource,
                 sessionId,
                 JObject.FromObject(payload));
+        }
 
+        var topic = ResolveRabbitTopic(publishRoutingKey, publication);
         return BuildRabbitMessage(messageId, topic, rabbitMessageName, rabbitSchemaVersion, payload);
     }
 
-    public static RoutingKey ResolveTopic(string? publishRoutingKey, Publication publication)
+    /// <summary>RabbitMQ: routing key for the exchange (override <paramref name="publishRoutingKey"/> or publication topic).</summary>
+    public static RoutingKey ResolveRabbitTopic(string? publishRoutingKey, Publication publication)
     {
         if (publication.Topic is null)
             throw new InvalidOperationException("Publication Topic is not set.");
@@ -70,6 +83,7 @@ public static class WireEnvelopeBuilder
     public static Message BuildLgsMessage(
         Id messageId,
         RoutingKey topic,
+        string cloudEventsSubject,
         string type,
         string source,
         string sessionId,
@@ -124,6 +138,8 @@ public static class WireEnvelopeBuilder
             messageId: messageId,
             topic: topic,
             messageType: MessageType.MT_EVENT);
+        header.Type = new CloudEventsType(type);
+        header.Subject = cloudEventsSubject;
         header.SetAzureServiceBusSessionId(sessionId);
         return new Message(header, body);
     }

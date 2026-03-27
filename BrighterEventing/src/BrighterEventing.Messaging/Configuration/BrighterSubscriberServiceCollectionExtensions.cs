@@ -139,7 +139,7 @@ public static class BrighterSubscriberServiceCollectionExtensions
             MaxDeliveryCount = options.AzureServiceBus.MaxDeliveryCount,
             LockDuration = TimeSpan.FromSeconds(options.AzureServiceBus.LockDurationSeconds),
             DeadLetteringOnMessageExpiration = options.AzureServiceBus.DeadLetteringOnMessageExpiration,
-            RequireSession = true,
+            RequireSession = options.AzureServiceBus.RequireSession,
             DefaultMessageTimeToLive = options.AzureServiceBus.DefaultMessageTimeToLiveDays > 0
                 ? TimeSpan.FromDays(options.AzureServiceBus.DefaultMessageTimeToLiveDays)
                 : TimeSpan.FromMinutes(1)
@@ -196,6 +196,7 @@ public static class BrighterSubscriberServiceCollectionExtensions
         options.AzureServiceBus.LockDurationSeconds = ReadInt(configuration["Messaging:AzureServiceBus:LockDurationSeconds"], options.AzureServiceBus.LockDurationSeconds);
         options.AzureServiceBus.DeadLetteringOnMessageExpiration = ReadBool(configuration["Messaging:AzureServiceBus:DeadLetteringOnMessageExpiration"], options.AzureServiceBus.DeadLetteringOnMessageExpiration);
         options.AzureServiceBus.DefaultMessageTimeToLiveDays = ReadInt(configuration["Messaging:AzureServiceBus:DefaultMessageTimeToLiveDays"], options.AzureServiceBus.DefaultMessageTimeToLiveDays);
+        options.AzureServiceBus.RequireSession = ReadBool(configuration["Messaging:AzureServiceBus:RequireSession"], options.AzureServiceBus.RequireSession);
 
         options.RabbitMQ.AmqpUri ??= configuration["RabbitMQ:AmqpUri"];
         options.RabbitMQ.HostName ??= configuration["RabbitMqSettings:HostName"];

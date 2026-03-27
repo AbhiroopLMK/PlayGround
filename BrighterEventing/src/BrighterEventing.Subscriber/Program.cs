@@ -26,9 +26,12 @@ internal static class Program
             config,
             catalog =>
             {
-                catalog.Map<OrderCreatedEvent>(nameof(OrderCreatedEvent), "OrderCreated");
-                catalog.Map<OrderUpdatedEvent>(nameof(OrderUpdatedEvent), "OrderUpdated");
-                catalog.Map<OrderCancelledEvent>(nameof(OrderCancelledEvent), "OrderCancelled");
+                catalog.Map<OrderCreatedEvent>(nameof(OrderCreatedEvent), "OrderCreated")
+                    .WithCloudEventsType<OrderCreatedEvent>(SampleOrderEventNames.OrderCreated);
+                catalog.Map<OrderUpdatedEvent>(nameof(OrderUpdatedEvent), "OrderUpdated")
+                    .WithCloudEventsType<OrderUpdatedEvent>(SampleOrderEventNames.OrderUpdated);
+                catalog.Map<OrderCancelledEvent>(nameof(OrderCancelledEvent), "OrderCancelled")
+                    .WithCloudEventsType<OrderCancelledEvent>(SampleOrderEventNames.OrderCancelled);
             },
             PostgreSqlSubscriberBrighterSetup.CreateConsumersConfigurer(builder.Services, config),
             typeof(OrderCreatedEvent).Assembly);

@@ -219,7 +219,7 @@ public static class CosmosDbServiceCollectionExtensions
             MaxDeliveryCount = options.AzureServiceBus.MaxDeliveryCount,
             LockDuration = TimeSpan.FromSeconds(options.AzureServiceBus.LockDurationSeconds),
             DeadLetteringOnMessageExpiration = options.AzureServiceBus.DeadLetteringOnMessageExpiration,
-            RequireSession = true,
+            RequireSession = options.AzureServiceBus.RequireSession,
             DefaultMessageTimeToLive = options.AzureServiceBus.DefaultMessageTimeToLiveDays > 0 ? TimeSpan.FromDays(options.AzureServiceBus.DefaultMessageTimeToLiveDays) : TimeSpan.FromMinutes(1)
         };
         consumers.Subscriptions = BrighterMessagingBrokerRegistration.BuildAzureServiceBusSubscriptions(

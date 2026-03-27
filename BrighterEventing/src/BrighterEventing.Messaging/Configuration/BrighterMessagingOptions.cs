@@ -1,26 +1,60 @@
 namespace BrighterEventing.Messaging.Configuration;
 
-/// <summary>One publisher registration: domain event type name + routing key (RabbitMQ topic / ASB subject path).</summary>
+/// <summary>
+/// One publisher registration: domain event type plus broker-specific routing.
+/// For RabbitMQ, <see cref="RoutingKey"/> is the exchange routing key. For Azure Service Bus,
+/// <see cref="Topic"/> is the Service Bus topic entity path when set; <see cref="RoutingKey"/> is the
+/// CloudEvents subject (and subscription filter). When <see cref="Topic"/> is empty for ASB, <see cref="RoutingKey"/>
+/// is used for both the topic path and subject (legacy).
+/// </summary>
 public sealed class PublicationBinding
 {
     /// <summary>Domain event, e.g. <c>OrderCreatedEvent</c> or <c>OrderCreated</c>.</summary>
     public string EventType { get; set; } = "";
 
+    /// <summary>
+    /// RabbitMQ: exchange routing key. Azure Service Bus: subject when <see cref="Topic"/> is set; otherwise topic path and subject.
+    /// </summary>
     public string RoutingKey { get; set; } = "";
+
+    /// <summary>
+    /// Azure Service Bus only: topic entity path (Brighter <c>Publication.Topic</c>). Ignored for RabbitMQ.
+    /// </summary>
+    public string Topic { get; set; } = "";
 }
 
-/// <summary>One consumer subscription: domain event type, routing key, and broker-specific names.</summary>
+/// <summary>
+/// One consumer subscription: domain event type, routing/subject, and broker-specific names.
+/// For Azure Service Bus, multiple handlers can share the same <see cref="Topic"/> (Service Bus topic) and differ by
+/// <see cref="RoutingKey"/> (subject filter). Each binding still uses its own <see cref="SubscriptionName"/> (subscription entity under the topic).
+/// </summary>
 public sealed class SubscriptionBinding
 {
     /// <summary>Domain event, e.g. <c>OrderCreatedEvent</c> or <c>OrderCreated</c>.</summary>
     public string EventType { get; set; } = "";
 
+    /// <summary>
+    /// RabbitMQ: routing key. Azure Service Bus: CloudEvents subject string (must match the publisher); used in the
+    /// subscription SQL rule on user property <c>[cloudEvents:subject]</c> (Brighter does not set broker <c>Subject</c>).
+    /// </summary>
     public string RoutingKey { get; set; } = "";
 
-    /// <summary>RabbitMQ subscription name and Azure Service Bus subscription name when not overridden per binding.</summary>
+    /// <summary>
+    /// Azure Service Bus only: Service Bus <strong>topic</strong> entity path (passed to Brighter as the subscription routing key / topic).
+    /// When empty, <see cref="ChannelName"/> is used as the topic path. Ignored for RabbitMQ.
+    /// </summary>
+    public string Topic { get; set; } = "";
+
+    /// <summary>
+    /// RabbitMQ: subscription name. Azure Service Bus: the <strong>subscription</strong> name under the topic (not the topic name).
+    /// Maps to Brighter <c>ChannelName</c> for ASB. When empty, uses <see cref="AzureServiceBusSubscriberOptions.SubscriptionName"/>.
+    /// </summary>
     public string SubscriptionName { get; set; } = "";
 
-    /// <summary>Queue name (RabbitMQ) or channel name (Azure Service Bus). When empty for Azure Service Bus, defaults to <see cref="SubscriptionName"/>.</summary>
+    /// <summary>
+    /// RabbitMQ: queue name. Azure Service Bus: legacy fallback for the topic path when <see cref="Topic"/> is empty.
+    /// When both <see cref="Topic"/> and <see cref="ChannelName"/> are empty for ASB, defaults to <see cref="SubscriptionName"/>.
+    /// </summary>
     public string ChannelName { get; set; } = "";
 }
 
@@ -56,7 +90,7 @@ public sealed class BrighterPublisherOptions
     public RetryOptions Retry { get; set; } = new();
 
     /// <summary>
-    /// Application-defined publications (routing keys / ASB topics). Multiple entries per event type are allowed.
+    /// Application-defined publications. Multiple entries per event type are allowed (e.g. different ASB subjects on the same topic).
     /// </summary>
     public List<PublicationBinding> Publications { get; set; } = new();
 }
@@ -141,4 +175,10 @@ public sealed class AzureServiceBusSubscriberOptions
     public int LockDurationSeconds { get; set; } = 60;
     public bool DeadLetteringOnMessageExpiration { get; set; } = true;
     public int DefaultMessageTimeToLiveDays { get; set; } = 3;
+
+    /// <summary>
+    /// When true, Brighter uses session receivers (<c>AcceptNextSessionAsync</c>); Azure subscriptions must be
+    /// session-enabled and messages must carry a session id. Default true.
+    /// </summary>
+    public bool RequireSession { get; set; } = true;
 }

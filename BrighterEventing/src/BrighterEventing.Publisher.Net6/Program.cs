@@ -25,9 +25,12 @@ var host = Host.CreateDefaultBuilder(args)
             context.Configuration,
             catalog =>
             {
-                catalog.Map<OrderCreatedEvent>(nameof(OrderCreatedEvent), "OrderCreated");
-                catalog.Map<OrderUpdatedEvent>(nameof(OrderUpdatedEvent), "OrderUpdated");
-                catalog.Map<OrderCancelledEvent>(nameof(OrderCancelledEvent), "OrderCancelled");
+                catalog.Map<OrderCreatedEvent>(nameof(OrderCreatedEvent), "OrderCreated")
+                    .WithCloudEventsType<OrderCreatedEvent>(SampleOrderEventNames.OrderCreated);
+                catalog.Map<OrderUpdatedEvent>(nameof(OrderUpdatedEvent), "OrderUpdated")
+                    .WithCloudEventsType<OrderUpdatedEvent>(SampleOrderEventNames.OrderUpdated);
+                catalog.Map<OrderCancelledEvent>(nameof(OrderCancelledEvent), "OrderCancelled")
+                    .WithCloudEventsType<OrderCancelledEvent>(SampleOrderEventNames.OrderCancelled);
             },
             typeof(OrderCreatedEvent).Assembly);
         services.AddHostedService<PublisherHostedService>();
