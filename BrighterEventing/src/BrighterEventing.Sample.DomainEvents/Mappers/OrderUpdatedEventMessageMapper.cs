@@ -1,3 +1,4 @@
+using BrighterEventing.Messaging.AzureServiceBus;
 using BrighterEventing.Messaging.Mappers;
 using Microsoft.Extensions.Configuration;
 using Paramore.Brighter;
@@ -18,8 +19,9 @@ public sealed class OrderUpdatedEventMessageMapper : IAmAMessageMapperAsync<Orde
     public Task<Message> MapToMessageAsync(
         OrderUpdatedEvent request,
         Publication publication,
-        CancellationToken cancellationToken = default) =>
-        Task.FromResult(WireEnvelopeBuilder.BuildForConfiguredTransport(
+        CancellationToken cancellationToken = default)
+    {
+        var message = WireEnvelopeBuilder.BuildForConfiguredTransport(
             request.Id,
             request.PublishRoutingKey,
             publication,
@@ -29,7 +31,13 @@ public sealed class OrderUpdatedEventMessageMapper : IAmAMessageMapperAsync<Orde
             request.OrderId,
             SampleOrderEventNames.OrderUpdated,
             "1.0",
-            new { orderId = request.OrderId, status = request.Status }));
+            new { orderId = request.OrderId, status = request.Status });
+
+        // Publisher decides which custom ASB application properties to stamp on this event.
+        message.Header.Bag[ServiceBusApplicationPropertyKeys.ServiceBusEventType] = "order.updated.v1";
+
+        return Task.FromResult(message);
+    }
 
     public Task<OrderUpdatedEvent> MapToRequestAsync(Message message, CancellationToken cancellationToken = default)
     {

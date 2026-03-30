@@ -1,5 +1,5 @@
+using BrighterEventing.Messaging.Configuration;
 using BrighterEventing.Publisher.Net6.Cosmos.Commands;
-using BrighterEventing.Publisher.Net6.Cosmos.Configuration;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -32,7 +32,7 @@ public class PublisherHostedService : BackgroundService
         var intervalSeconds = _configuration.GetValue("Publisher:SendIntervalSeconds", 5);
         var transport = _configuration["BrighterMessaging:Publisher:Transport"]
             ?? _configuration["Transport"]
-            ?? TransportType.RabbitMQ;
+            ?? BrokerType.RabbitMQ;
 
         _logger.LogInformation(
             "Net6 Cosmos publisher started. Transport={Transport}, Interval={Interval}s",

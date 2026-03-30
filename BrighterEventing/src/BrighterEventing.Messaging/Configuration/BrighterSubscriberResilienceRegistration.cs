@@ -10,6 +10,10 @@ namespace BrighterEventing.Messaging.Configuration;
 /// Register one generic <c>TryAddBuilder&lt;T&gt;</c> per event type in
 /// <see cref="IEventTypeRegistry.RegisteredEventTypes"/> (same retry policy as the shared consumer options).
 /// </summary>
+/// <remarks>
+/// Same pattern as <see cref="BrighterMessagingBrokerRegistration"/>: config/registry yields a list of
+/// <see cref="Type"/>; Brighter’s Polly registration is generic per <c>T</c>, so one <c>MakeGenericMethod</c> per event type.
+/// </remarks>
 public static class BrighterSubscriberResilienceRegistration
 {
     public const string ConsumerRetryPipelineName = "ConsumerRetryPipeline";

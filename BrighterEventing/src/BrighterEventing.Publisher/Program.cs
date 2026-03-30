@@ -32,7 +32,7 @@ internal static class Program
         builder.Services.AddBrighterEventingPublisherMessaging(
             config,
             catalog => catalog.AddSampleOrderEvents(),
-            PostgreSqlPublisherBrighterSetup.CreateProducersConfigurer(builder.Services, config),
+            PostgreSqlPublisherBrighterSetup.CreateProducersConfigurer<BrighterOutboxDbContext>(builder.Services, config),
             SampleEventCatalog.Assembly);
 
         builder.Services.AddHostedService<PublisherHostedService>();

@@ -11,6 +11,11 @@ namespace BrighterEventing.Messaging.AzureServiceBus;
 /// Sends through Brighter's private <c>GetSenderAsync</c> but builds <see cref="ServiceBusMessage"/> with
 /// <see cref="BrighterEventingServiceBusMessageConverter"/> so broker <see cref="ServiceBusMessage.Subject"/> is set.
 /// </summary>
+/// <remarks>
+/// Reflection here is only because Paramore.Brighter does not expose a public sender API on
+/// <see cref="AzureServiceBusMessageProducer"/>; this is integration glue, not domain logic. If Brighter adds a public
+/// hook, this file can shrink to a direct call.
+/// </remarks>
 internal static class BrighterEventingAzureServiceBusProducerSend
 {
     private static readonly MethodInfo GetSenderAsyncMethod =

@@ -16,6 +16,7 @@
     <PackageReference Include="Paramore.Brighter.Inbox.Postgres" Version="10.3.0" />
     <PackageReference Include="Paramore.Brighter.Outbox.PostgreSql" Version="10.3.0" />
     <PackageReference Include="Paramore.Brighter.PostgreSql" Version="10.3.0" />
+    <PackageReference Include="Paramore.Brighter.PostgreSql.EntityFrameworkCore" Version="10.3.0" />
     <PackageReference Include="Paramore.Brighter.ServiceActivator.Extensions.DependencyInjection" Version="10.3.0" />
   </ItemGroup>
 

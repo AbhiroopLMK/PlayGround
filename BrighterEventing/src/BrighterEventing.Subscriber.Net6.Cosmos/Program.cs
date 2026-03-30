@@ -1,5 +1,4 @@
-// .NET 6 subscriber: Cosmos DB inbox + Brighter consumers (ASB or Rabbit) via BrighterMessaging.CosmosDb.
-
+using BrighterEventing.Messaging.Configuration;
 using BrighterEventing.Messaging.CosmosDb.Configuration;
 using BrighterEventing.Subscriber.Net6.Cosmos.Configuration;
 using BrighterEventing.Sample.DomainEvents;
@@ -28,6 +27,7 @@ var host = Host.CreateDefaultBuilder(args)
         services.AddBrighterEventingSubscriberMessaging(
             context.Configuration,
             catalog => catalog.AddSampleOrderEvents(),
+            CosmosDbServiceCollectionExtensions.CreateConsumersConfigurer(services, context.Configuration),
             typeof(Program).Assembly,
             SampleEventCatalog.Assembly);
         services.AddHostedService<ServiceActivatorHostedService>();

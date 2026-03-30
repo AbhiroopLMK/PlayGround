@@ -24,11 +24,6 @@ public sealed class PublicationBinding
     /// </summary>
     public string Topic { get; set; } = "";
 
-    /// <summary>
-    /// Azure Service Bus only: optional application property <c>serviceBusEventType</c> for consumers that filter on it.
-    /// When set, mappers should copy this onto <see cref="Paramore.Brighter.MessageHeader.Bag"/> (see <see cref="AzureServiceBus.ServiceBusApplicationPropertyKeys"/>).
-    /// </summary>
-    public string? ServiceBusEventType { get; set; }
 }
 
 /// <summary>
@@ -42,9 +37,11 @@ public sealed class SubscriptionBinding
     public string EventType { get; set; } = "";
 
     /// <summary>
-    /// RabbitMQ: routing key. Azure Service Bus: CloudEvents subject string (must match the publisher); used for legacy
-    /// SQL filter on <c>[cloudEvents:subject]</c> when <see cref="AzureServiceBusFilterRules"/> is empty. When using
-    /// <see cref="AsbFilterPropertyKind.BrokerSubject"/>, match the publisher's broker subject (see converter on send path).
+    /// RabbitMQ: routing key. Azure Service Bus: used when <see cref="AzureServiceBusFilterRules"/> is empty to build a
+    /// single correlation condition on the <c>cloudEvents:subject</c> application property (must match the publisher).
+    /// When you declare rules explicitly, use <see cref="AsbFilterPropertyKind.System"/> with <c>PropertyName</c>
+    /// <c>subject</c> for the broker subject, or <see cref="AsbFilterPropertyKind.Custom"/> with
+    /// <c>cloudEvents:subject</c> for the CloudEvents app property.
     /// </summary>
     public string RoutingKey { get; set; } = "";
 
@@ -67,9 +64,10 @@ public sealed class SubscriptionBinding
     public string ChannelName { get; set; } = "";
 
     /// <summary>
-    /// Azure Service Bus only: optional filter rules. When non-empty, builds one SQL rule as
-    /// <c>(rule1) OR (rule2) OR …</c> where each rule ANDs its <see cref="AsbSubscriptionFilterCondition"/> clauses.
-    /// When empty, uses legacy <see cref="RoutingKey"/> as <c>[cloudEvents:subject]</c> only.
+    /// Azure Service Bus only: correlation rules (OR across rules; AND within each rule’s <see cref="AsbSubscriptionFilterCondition"/>).
+    /// Each condition uses <see cref="AsbFilterPropertyKind.System"/> (broker field via <see cref="AsbSubscriptionFilterCondition.PropertyName"/>)
+    /// or <see cref="AsbFilterPropertyKind.Custom"/> (application property). When empty, defaults to one custom condition on
+    /// <c>cloudEvents:subject</c> using <see cref="RoutingKey"/> as the value.
     /// </summary>
     public List<AsbSubscriptionFilterRule>? AzureServiceBusFilterRules { get; set; }
 }

@@ -2,7 +2,11 @@ using Paramore.Brighter;
 
 namespace BrighterEventing.Messaging.Configuration;
 
-/// <summary>Fluent builder for <see cref="IEventTypeRegistry"/>.</summary>
+/// <summary>
+/// Fluent builder for <see cref="IEventTypeRegistry"/>: maps config strings (e.g. <c>OrderCreated</c>) to CLR event types so
+/// JSON can name events without embedding type names in every transport line. The “real” broker objects are plain
+/// generics in <see cref="BrighterBrokerTemplates"/>.
+/// </summary>
 public sealed class EventTypeCatalogBuilder
 {
     private readonly Dictionary<string, Type> _map = new(StringComparer.OrdinalIgnoreCase);

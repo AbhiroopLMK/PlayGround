@@ -48,7 +48,7 @@ public static class BrighterPublisherServiceCollectionExtensions
         this IServiceCollection services,
         IConfiguration configuration,
         Action<EventTypeCatalogBuilder> configureEventTypes,
-        Action<dynamic, BrighterPublisherOptions>? configureProducersBeforeTransport,
+        Action<ProducersConfiguration, BrighterPublisherOptions>? configureProducersBeforeTransport,
         params Assembly[] autoFromAssemblies)
     {
         var builder = new EventTypeCatalogBuilder();
@@ -79,7 +79,7 @@ public static class BrighterPublisherServiceCollectionExtensions
         this IServiceCollection services,
         IConfiguration configuration,
         IEventTypeRegistry eventTypeRegistry,
-        Action<dynamic, BrighterPublisherOptions>? configureProducersBeforeTransport,
+        Action<ProducersConfiguration, BrighterPublisherOptions>? configureProducersBeforeTransport,
         params Assembly[] autoFromAssemblies)
     {
         var options = BindPublisherOptions(configuration);
@@ -116,7 +116,7 @@ public static class BrighterPublisherServiceCollectionExtensions
         return services;
     }
 
-    private static void ConfigureRabbitMq(dynamic producers, BrighterPublisherOptions options, IEventTypeRegistry eventTypeRegistry)
+    private static void ConfigureRabbitMq(ProducersConfiguration producers, BrighterPublisherOptions options, IEventTypeRegistry eventTypeRegistry)
     {
         var amqpUri = RabbitMqAmqpUri.Resolve(
             options.RabbitMQ.AmqpUri,
@@ -137,7 +137,7 @@ public static class BrighterPublisherServiceCollectionExtensions
             BrighterMessagingBrokerRegistration.BuildRmqPublications(options, eventTypeRegistry)).Create();
     }
 
-    private static void ConfigureAzureServiceBus(dynamic producers, BrighterPublisherOptions options, IEventTypeRegistry eventTypeRegistry)
+    private static void ConfigureAzureServiceBus(ProducersConfiguration producers, BrighterPublisherOptions options, IEventTypeRegistry eventTypeRegistry)
     {
         if (string.IsNullOrWhiteSpace(options.AzureServiceBus.ConnectionString))
             throw new InvalidOperationException(

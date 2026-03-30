@@ -1,20 +1,22 @@
 namespace BrighterEventing.Messaging.Configuration;
 
 /// <summary>
-/// Which message field a subscription filter condition targets (mapped to <c>CorrelationRuleFilter</c>).
+/// Whether a filter condition targets a Service Bus <b>system</b> property (maps to
+/// <see cref="Azure.Messaging.ServiceBus.Administration.CorrelationRuleFilter"/> fields) or a <b>custom</b>
+/// application property (maps to <see cref="Azure.Messaging.ServiceBus.Administration.CorrelationRuleFilter.ApplicationProperties"/>).
 /// </summary>
 public enum AsbFilterPropertyKind
 {
-    /// <summary>Brighter / CloudEvents application property <c>cloudEvents:subject</c> (maps from <see cref="Paramore.Brighter.MessageHeader.Subject"/>).</summary>
-    CloudEventsSubjectApplicationProperty,
+    /// <summary>
+    /// Broker/system field; set <see cref="AsbSubscriptionFilterCondition.PropertyName"/> to the field (e.g. <c>subject</c>,
+    /// <c>correlationId</c>, <c>sessionId</c>). Names are matched case-insensitively; optional <c>sys.</c> prefix is ignored.
+    /// </summary>
+    System,
 
-    /// <summary>Broker system property <c>subject</c> (maps to CorrelationFilter "Subject" in the portal).</summary>
-    BrokerSubject,
-
-    /// <summary>Broker system property <c>sys.Label</c>.</summary>
-    BrokerLabel,
-
-    /// <summary>User-defined application property; set <see cref="AsbSubscriptionFilterCondition.PropertyName"/> (e.g. <c>serviceBusEventType</c>).</summary>
+    /// <summary>
+    /// User-defined application property; <see cref="AsbSubscriptionFilterCondition.PropertyName"/> is required
+    /// (e.g. <c>serviceBusEventType</c>, <c>cloudEvents:subject</c>).
+    /// </summary>
     Custom
 }
 
@@ -25,7 +27,11 @@ public sealed class AsbSubscriptionFilterCondition
 {
     public AsbFilterPropertyKind Kind { get; set; }
 
-    /// <summary>Required when <see cref="Kind"/> is <see cref="AsbFilterPropertyKind.Custom"/>.</summary>
+    /// <summary>
+    /// Required for both <see cref="AsbFilterPropertyKind.System"/> and <see cref="AsbFilterPropertyKind.Custom"/>.
+    /// System: e.g. <c>subject</c>, <c>contentType</c>, <c>correlationId</c>, <c>messageId</c>, <c>replyTo</c>,
+    /// <c>replyToSessionId</c>, <c>sessionId</c>, <c>to</c>. Custom: full application property key.
+    /// </summary>
     public string? PropertyName { get; set; }
 
     public string Value { get; set; } = "";

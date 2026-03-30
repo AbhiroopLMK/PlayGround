@@ -54,8 +54,6 @@ public static class WireEnvelopeBuilder
                 ? publishRoutingKey.Trim()
                 : publication.Subject ?? string.Empty;
 
-            var serviceBusEventType = BrighterPublisherPublicationMetadata.TryGetServiceBusEventType(configuration, publication);
-
             return BuildLgsMessage(
                 messageId,
                 publication.Topic,
@@ -63,8 +61,7 @@ public static class WireEnvelopeBuilder
                 lgsType,
                 lgsSource,
                 sessionId,
-                JObject.FromObject(payload),
-                serviceBusEventType);
+                JObject.FromObject(payload));
         }
 
         var topic = ResolveRabbitTopic(publishRoutingKey, publication);
@@ -90,8 +87,7 @@ public static class WireEnvelopeBuilder
         string type,
         string source,
         string sessionId,
-        JObject eventData,
-        string? serviceBusEventType = null)
+        JObject eventData)
     {
         var wire = new LgsEventWire
         {
@@ -145,8 +141,6 @@ public static class WireEnvelopeBuilder
         header.Type = new CloudEventsType(type);
         header.Subject = cloudEventsSubject;
         header.SetAzureServiceBusSessionId(sessionId);
-        if (!string.IsNullOrWhiteSpace(serviceBusEventType))
-            header.Bag[ServiceBusApplicationPropertyKeys.ServiceBusEventType] = serviceBusEventType.Trim();
         return new Message(header, body);
     }
 

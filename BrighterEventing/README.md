@@ -39,7 +39,7 @@ Azure Service Bus subscribers also register **`AzureServiceBusCorrelationRulesHo
 #### 3. Publish (outbox → broker)
 
 - With outbox: same transaction as business data → **`DepositPostAsync`** persists the **`Message`**; background **`ClearOutboxAsync`** dispatches to the broker.
-- **Azure Service Bus**: producers are wrapped so **`BrighterEventingAzureServiceBusProducerSend`** sends with **`BrighterEventingServiceBusMessageConverter`**, which sets broker **`ServiceBusMessage.Subject`** from **`MessageHeader.Subject`** (Brighter’s default converter only sets **`cloudEvents:subject`** as an application property). This aligns with **correlation filters** on **Subject** and with **`BrokerSubject`** in config.
+- **Azure Service Bus**: producers are wrapped so **`BrighterEventingAzureServiceBusProducerSend`** sends with **`BrighterEventingServiceBusMessageConverter`**, which sets broker **`ServiceBusMessage.Subject`** from **`MessageHeader.Subject`** (Brighter’s default converter only sets **`cloudEvents:subject`** as an application property). Subscribers filter with **`Kind: System`** + **`PropertyName: subject`** for broker subject, or **`Kind: Custom`** + a property name (e.g. **`cloudEvents:subject`**, **`serviceBusEventType`**).
 
 #### 4. Subscribe (consumer → handler)
 

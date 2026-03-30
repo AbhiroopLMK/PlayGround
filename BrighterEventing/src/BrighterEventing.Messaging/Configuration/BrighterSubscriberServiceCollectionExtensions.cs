@@ -164,7 +164,7 @@ public static class BrighterSubscriberServiceCollectionExtensions
     }
 
     private static void ConfigureRabbitMqConsumers(
-        dynamic consumers,
+        ConsumersOptions consumers,
         BrighterSubscriberOptions options,
         IEventTypeRegistry eventTypeRegistry,
         TimeSpan timeout,

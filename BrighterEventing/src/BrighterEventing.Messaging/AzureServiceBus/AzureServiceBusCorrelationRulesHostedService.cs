@@ -205,7 +205,8 @@ public sealed class AzureServiceBusCorrelationRulesHostedService : IHostedServic
                     {
                         new()
                         {
-                            Kind = AsbFilterPropertyKind.CloudEventsSubjectApplicationProperty,
+                            Kind = AsbFilterPropertyKind.Custom,
+                            PropertyName = BrighterMessagingBrokerRegistration.BrighterCloudEventsSubjectApplicationPropertyKey,
                             Value = binding.RoutingKey.Trim()
                         }
                     }

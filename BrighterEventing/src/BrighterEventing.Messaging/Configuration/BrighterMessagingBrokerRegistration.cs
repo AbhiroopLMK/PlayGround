@@ -8,14 +8,29 @@ using Paramore.Brighter.ServiceActivator.Extensions.DependencyInjection;
 namespace BrighterEventing.Messaging.Configuration;
 
 /// <summary>
-/// Maps <c>BrighterMessaging:*:Publications</c> / <c>Subscriptions</c> to Brighter's transport types.
-/// Azure Service Bus: <see cref="PublicationBinding.Topic"/> is the Service Bus topic path;
-/// <see cref="PublicationBinding.RoutingKey"/> is the CloudEvents subject. Brighter only creates subscriptions with
-/// SQL or default rules; <see cref="BrighterEventing.Messaging.AzureServiceBus.AzureServiceBusCorrelationRulesHostedService"/> applies
-/// correlation rule filters from
-/// <see cref="SubscriptionBinding.AzureServiceBusFilterRules"/> (OR across rules). Publishers set broker
-/// <c>Subject</c> via <see cref="BrighterEventing.Messaging.AzureServiceBus.BrighterEventingServiceBusMessageConverter"/>.
+/// Maps JSON config (<c>BrighterMessaging:*:Publications</c> / <c>Subscriptions</c>) to Brighter transport objects.
 /// </summary>
+/// <remarks>
+/// <para>
+/// Brighter’s API is generic (<c>AzureServiceBusPublication&lt;TEvent&gt;</c>, …). Configuration only provides
+/// <see cref="PublicationBinding.EventType"/> as a <strong>string</strong>, resolved to <see cref="Type"/> via
+/// <see cref="IEventTypeRegistry"/>. <c>MakeGenericMethod</c> in this class is the minimal bridge from that
+/// runtime type to Brighter’s compile-time generics. The actual shapes are ordinary object construction; see
+/// <see cref="BrighterBrokerTemplates"/> for the same logic without reflection.
+/// </para>
+/// <para>
+/// Subscriber filters: <see cref="SubscriptionBinding.AzureServiceBusFilterRules"/> with
+/// <see cref="AsbFilterPropertyKind.System"/> or <see cref="AsbFilterPropertyKind.Custom"/>,
+/// <see cref="AsbSubscriptionFilterCondition.PropertyName"/>, and <see cref="AsbSubscriptionFilterCondition.Value"/>.
+/// </para>
+/// <para>
+/// Azure Service Bus: <see cref="PublicationBinding.Topic"/> is the topic path;
+/// <see cref="PublicationBinding.RoutingKey"/> is the CloudEvents subject. Brighter creates subscriptions with empty SQL;
+/// <see cref="BrighterEventing.Messaging.AzureServiceBus.AzureServiceBusCorrelationRulesHostedService"/> applies
+/// correlation filters from <see cref="SubscriptionBinding.AzureServiceBusFilterRules"/>. Publishers set broker
+/// <c>Subject</c> via <see cref="BrighterEventing.Messaging.AzureServiceBus.BrighterEventingServiceBusMessageConverter"/>.
+/// </para>
+/// </remarks>
 public static class BrighterMessagingBrokerRegistration
 {
     /// <summary>
@@ -268,23 +283,13 @@ public static class BrighterMessagingBrokerRegistration
     }
 
     private static RmqPublication AddRmqPublicationForEvent<T>(RoutingKey rk) where T : Event =>
-        new RmqPublication<T>
-        {
-            MakeChannels = OnMissingChannel.Create,
-            Topic = rk
-        };
+        BrighterBrokerTemplates.RmqPublication<T>(rk);
 
     private static AzureServiceBusPublication AddAzureServiceBusPublicationForEvent<T>(
         RoutingKey topicPath,
         string subject,
         CloudEventsType cloudEventsType) where T : Event =>
-        new AzureServiceBusPublication<T>
-        {
-            MakeChannels = OnMissingChannel.Create,
-            Topic = topicPath,
-            Subject = subject,
-            Type = cloudEventsType
-        };
+        BrighterBrokerTemplates.AzureServiceBusPublication<T>(topicPath, subject, cloudEventsType);
 
     private static Subscription CreateRmqSubscriptionForEvent<T>(
         string subName,
@@ -293,15 +298,13 @@ public static class BrighterMessagingBrokerRegistration
         TimeSpan timeout,
         BrighterSubscriberOptions options,
         TimeSpan? requeueDelay) where T : Event =>
-        new RmqSubscription<T>(
-            new SubscriptionName(subName),
-            new ChannelName(channelName),
+        BrighterBrokerTemplates.RmqSubscription<T>(
+            subName,
+            channelName,
             rk,
-            timeOut: timeout,
-            makeChannels: OnMissingChannel.Create,
-            requeueCount: options.Consumer.MaxRetryCount,
-            requeueDelay: requeueDelay,
-            messagePumpType: MessagePumpType.Proactor);
+            timeout,
+            options.Consumer.MaxRetryCount,
+            requeueDelay);
 
     /// <remarks>
     /// Brighter's ASB topic consumer uses the subscription's routing key as the Service Bus topic path, channel name as
@@ -317,16 +320,14 @@ public static class BrighterMessagingBrokerRegistration
         BrighterSubscriberOptions options,
         TimeSpan? requeueDelay,
         AzureServiceBusSubscriptionConfiguration subscriptionConfiguration) where T : Event =>
-        new AzureServiceBusSubscription<T>(
-            new SubscriptionName(topicPath),
-            new ChannelName(subscriptionEntityName),
+        BrighterBrokerTemplates.AzureServiceBusSubscription<T>(
+            topicPath,
+            subscriptionEntityName,
             topicRoutingKey,
-            timeOut: timeout,
-            makeChannels: OnMissingChannel.Create,
-            requeueCount: options.Consumer.MaxRetryCount,
-            requeueDelay: requeueDelay,
-            messagePumpType: MessagePumpType.Proactor,
-            subscriptionConfiguration: subscriptionConfiguration);
+            timeout,
+            options.Consumer.MaxRetryCount,
+            requeueDelay,
+            subscriptionConfiguration);
 
     private static void ValidatePublications(BrighterPublisherOptions options, IEventTypeRegistry registry)
     {

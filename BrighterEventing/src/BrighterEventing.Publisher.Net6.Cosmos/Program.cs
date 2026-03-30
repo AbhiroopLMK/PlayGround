@@ -1,5 +1,4 @@
-// .NET 6 publisher: Cosmos DB outbox + Brighter producers (ASB or Rabbit) via BrighterMessaging.CosmosDb.
-
+using BrighterEventing.Messaging.Configuration;
 using BrighterEventing.Messaging.CosmosDb.Configuration;
 using BrighterEventing.Publisher.Net6.Cosmos;
 using BrighterEventing.Sample.DomainEvents;
@@ -26,6 +25,7 @@ var host = Host.CreateDefaultBuilder(args)
         services.AddBrighterEventingPublisherMessaging(
             context.Configuration,
             catalog => catalog.AddSampleOrderEvents(),
+            CosmosDbServiceCollectionExtensions.CreateProducersConfigurer(services, context.Configuration),
             typeof(Program).Assembly,
             SampleEventCatalog.Assembly);
         services.AddHostedService<PublisherHostedService>();
