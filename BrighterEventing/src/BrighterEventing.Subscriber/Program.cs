@@ -5,8 +5,6 @@ using BrighterEventing.Sample.DomainEvents;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
-using Paramore.Brighter.ServiceActivator.Extensions.Hosting;
-
 namespace BrighterEventing.Subscriber;
 
 // Sample subscriber: PostgreSQL inbox + Brighter consumers (ASB or Rabbit). Net6 host uses Cosmos package or no DB.
@@ -24,15 +22,17 @@ internal static class Program
         var inboxConnectionString = config.GetConnectionString("BrighterInbox")
             ?? throw new InvalidOperationException("ConnectionStrings:BrighterInbox is required.");
         builder.Services.Configure<TestingOptions>(config.GetSection(TestingOptions.SectionName));
+
         builder.Services.AddBrighterEventingSubscriberMessaging(
             config,
             catalog => catalog.AddSampleOrderEvents(),
             PostgreSqlSubscriberBrighterSetup.CreateConsumersConfigurer(builder.Services, config),
             SampleEventCatalog.Assembly);
 
-        builder.Services.AddHostedService<Paramore.Brighter.ServiceActivator.Extensions.Hosting.ServiceActivatorHostedService>();
+        builder.Services.AddHostedService<CancellableBrighterDispatcherHostedService>();
 
-        builder.Services.Configure<HostOptions>(opts => opts.ShutdownTimeout = TimeSpan.FromSeconds(30));
+        // Brighter’s default hosted service ignores StopAsync’s token; bounded wait avoids hanging on RMQ close (TLS / broker).
+        builder.Services.Configure<HostOptions>(opts => opts.ShutdownTimeout = TimeSpan.FromSeconds(15));
 
         var host = builder.Build();
 
